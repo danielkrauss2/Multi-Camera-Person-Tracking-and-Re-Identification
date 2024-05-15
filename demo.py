@@ -10,6 +10,7 @@ import keras.backend.tensorflow_backend as KTF
 from timeit import time
 import warnings
 import argparse
+from pathlib import Path
 
 import sys
 import cv2
@@ -90,8 +91,13 @@ def main(yolo):
         os.mkdir(out_dir)
 
     all_frames = []
+    video_frame_length = {}
+
     for video in args.videos:
         loadvideo = LoadVideo(video)
+
+        video_frame_length[video] = loadvideo.vn
+
         video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
         while True:
             ret, frame = video_capture.read()
@@ -254,7 +260,7 @@ def main(yolo):
         video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         for idx in final_fuse_id:
-            tracking_path = os.path.join(output_dir, str(idx)+'.avi')
+            tracking_path = os.path.join(output_dir, str(idx) + '.avi')
             out = cv2.VideoWriter(tracking_path, fourcc, frame_rate, (w, h))
             for i in final_fuse_id[idx]:
                 for f in track_cnt[i]:
@@ -270,29 +276,144 @@ def main(yolo):
     if args.all:
         loadvideo = LoadVideo(combined_path)
         video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        complete_path = out_dir+'/Complete'+'.avi'
-        out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
+
+        # fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        # complete_path = out_dir+'/Complete'+'.avi'
+        # out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
+
+        selected_ids = set()  # Set to store selected IDs
+        seen_ids = set()  # Set to store seen IDs
+
+        frame_counter = 0
+        segment_index = 0
+        segment_paths = []
+
+        filename = Path([*video_frame_length][segment_index]).stem
+        out, complete_path = create_video_writer(out_dir, segment_index, filename, frame_rate, w, h)
+
+        print("Dict of video length: " + str(video_frame_length))
 
         for frame in range(len(all_frames)):
-            frame2 = all_frames[frame]
+            # segment_paths = [complete_path]  # Store all segment paths for final info
+
             video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame)
             _, frame2 = video_capture.read()
+
+            # Check if the frame is successfully read
+            if frame2 is None:
+                print(f"Frame {frame} is empty or could not be read, skipping.")
+                continue
+
+            # Identify new IDs in the current frame
+            new_ids = set()
             for idx in final_fuse_id:
-                for i in final_fuse_id[idx]:
-                    for f in track_cnt[i]:
-                        # print('frame {} f0 {}'.format(frame,f[0]))
-                        if frame == f[0]:
-                            text_scale, text_thickness, line_thickness = get_FrameLabels(frame2)
-                            cv2_addBox(idx, frame2, f[1], f[2], f[3], f[4], line_thickness, text_thickness, text_scale)
-            out.write(frame2)
+                if idx not in seen_ids:
+                    for i in final_fuse_id[idx]:
+                        for f in track_cnt[i]:
+                            if frame == f[0]:
+                                new_ids.add(idx)
+                                seen_ids.add(idx)
+                                break
+
+            # Display frame and get user input for new IDs
+            if new_ids:
+                new_selected_ids = display_and_select_ids(frame2, final_fuse_id, track_cnt, frame, new_ids)
+                selected_ids.update(new_selected_ids)
+
+            # Create a black mask of the same size as frame2
+            mask = np.zeros_like(frame2)
+            frame_height, frame_width = frame2.shape[:2]
+
+            for idx in selected_ids:
+                if idx in final_fuse_id:
+                    for i in final_fuse_id[idx]:
+                        for f in track_cnt[i]:
+                            if frame == f[0]:
+                                x1, y1, x2, y2 = f[1], f[2], f[3], f[4]
+
+                                # Calculate and apply 30% margin
+                                margin_x = int(0.3 * (x2 - x1) / 2)
+                                margin_y = int(0.3 * (y2 - y1) / 2)
+
+                                # Adjust coordinates
+                                x1 = max(x1 - margin_x, 0)
+                                y1 = max(y1 - margin_y, 0)
+                                x2 = min(x2 + margin_x, frame_width)
+                                y2 = min(y2 + margin_y, frame_height)
+
+                                # Copy the detected person area from frame2 to the mask
+                                mask[y1:y2, x1:x2] = frame2[y1:y2, x1:x2]
+
+                                text_scale, text_thickness, line_thickness = get_FrameLabels(frame2)
+                                cv2_addBox(idx, frame2, f[1], f[2], f[3], f[4], line_thickness, text_thickness,
+                                           text_scale)
+
+            out.write(mask)
+            print(f"Writing frame {frame_counter} to {complete_path}")
+            frame_counter += 1
+
+            print(video_frame_length[[*video_frame_length][segment_index]])
+
+            if frame_counter >= video_frame_length[[*video_frame_length][segment_index]]:
+                out.release()
+                frame_counter = 0
+                segment_index += 1
+
+                try:
+                    filename = Path([*video_frame_length][segment_index]).stem
+
+                    out, complete_path = create_video_writer(out_dir, segment_index, filename, frame_rate, w, h)
+                    segment_paths.append(complete_path)
+
+                except IndexError:
+                    break
+
         out.release()
         video_capture.release()
 
-    os.remove(combined_path)
-    print('\nWriting videos took {} seconds'.format(int(time.time() - t2)))
-    print('Final video at {}'.format(complete_path))
-    print('Total: {} seconds'.format(int(time.time() - t1)))
+        for path in segment_paths:
+            print(f'Segment video at {path}')
+
+
+def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, codec='MJPG'):
+    complete_path = os.path.join(out_dir, filename + "_" + str(segment_index) + ".avi")
+    fourcc = cv2.VideoWriter_fourcc(*codec)
+    out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
+    return out, complete_path
+
+
+# Function to display frame with all detected persons and prompt for user input
+def display_and_select_ids(frame, final_fuse_id, track_cnt, current_frame, new_ids):
+    displayed_frame = frame.copy()
+    for idx in new_ids:
+        for i in final_fuse_id[idx]:
+            for f in track_cnt[i]:
+                if f[0] == current_frame:
+                    x1, y1, x2, y2 = f[1], f[2], f[3], f[4]
+                    cv2.rectangle(displayed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(displayed_frame, f"ID: {idx}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (0, 255, 0), 2)
+
+    # Instructions for selecting IDs
+    instructions = "Detected new person IDs. Enter 'y' to track or 'n' to ignore each ID."
+    cv2.putText(displayed_frame, instructions, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    cv2.imshow("New Person Detected", displayed_frame)
+    cv2.waitKey(1)
+
+    # Collect user decisions for each new ID
+    selected_ids = set()
+    for idx in new_ids:
+        while True:
+            user_input = input(f"Do you want to track person with ID {idx}? (y/n): ")
+            if user_input.lower() in ['y', 'n']:
+                if user_input.lower() == 'y':
+                    selected_ids.add(idx)
+                break
+            else:
+                print("Invalid input. Please enter 'y' or 'n'.")
+
+    cv2.destroyAllWindows()
+    return selected_ids
 
 
 def get_FrameLabels(frame):
