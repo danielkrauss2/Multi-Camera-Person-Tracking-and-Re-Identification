@@ -95,9 +95,6 @@ def main(yolo):
 
     for video in args.videos:
         loadvideo = LoadVideo(video)
-
-        video_frame_length[video] = loadvideo.vn
-
         video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
         while True:
             ret, frame = video_capture.read()
@@ -107,6 +104,10 @@ def main(yolo):
             all_frames.append(frame)
 
     frame_nums = len(all_frames)
+
+    video_frame_length[video] = frame_nums
+    print("Actual frame length: ", frame_nums)
+
     tracking_path = out_dir + 'tracking' + '.avi'
     combined_path = out_dir + 'allVideos' + '.avi'
     if is_vis:
