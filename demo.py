@@ -134,19 +134,29 @@ def main(yolo):
     track_cnt = dict()
     images_by_id = dict()
     ids_per_frame = []
-    for frame in all_frames:
-        image = Image.fromarray(frame[..., ::-1])  # bgr to rgb
-        boxs = yolo.detect_image(image)  # n * [topleft_x, topleft_y, w, h]
-        features = encoder(frame, boxs)  # n * 128
-        detections = [Detection(bbox, 1.0, feature) for bbox, feature in zip(boxs, features)]  # length = n
-        text_scale, text_thickness, line_thickness = get_FrameLabels(frame)
+    bbox_cache = []  # Cache to store bounding boxes for the 9 frames
 
-        # Run non-maxima suppression.
-        boxes = np.array([d.tlwh for d in detections])
-        scores = np.array([d.confidence for d in detections])
-        indices = preprocessing.delete_overlap_box(boxes, nms_max_overlap, scores)
-        # indices = preprocessing.non_max_suppression(boxes, nms_max_overlap, scores)
-        detections = [detections[i] for i in indices]  # length = len(indices)
+    for frame in all_frames:
+        if frame_cnt % 15 == 0:
+
+            image = Image.fromarray(frame[..., ::-1])  # bgr to rgb
+            boxs = yolo.detect_image(image)  # n * [topleft_x, topleft_y, w, h]
+            features = encoder(frame, boxs)  # n * 128
+            detections = [Detection(bbox, 1.0, feature) for bbox, feature in zip(boxs, features)]  # length = n
+
+            # Run non-maxima suppression.
+            boxes = np.array([d.tlwh for d in detections])
+            scores = np.array([d.confidence for d in detections])
+            indices = preprocessing.delete_overlap_box(boxes, nms_max_overlap, scores)
+            # indices = preprocessing.non_max_suppression(boxes, nms_max_overlap, scores)
+            detections = [detections[i] for i in indices]  # length = len(indices)
+
+            # Cache the detections
+            bbox_cache = detections
+        else:
+            detections = bbox_cache
+
+        text_scale, text_thickness, line_thickness = get_FrameLabels(frame)
 
         # Call the tracker
         tracker.predict()
@@ -336,9 +346,9 @@ def main(yolo):
                             if frame == f[0]:
                                 x1, y1, x2, y2 = f[1], f[2], f[3], f[4]
 
-                                # Calculate and apply 30% margin
-                                margin_x = int(0.3 * (x2 - x1) / 2)
-                                margin_y = int(0.3 * (y2 - y1) / 2)
+                                # Calculate and apply 65% margin
+                                margin_x = int(0.65 * (x2 - x1) / 2)
+                                margin_y = int(0.65 * (y2 - y1) / 2)
 
                                 # Adjust coordinates
                                 x1 = max(x1 - margin_x, 0)
