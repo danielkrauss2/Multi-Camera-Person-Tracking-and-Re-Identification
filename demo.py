@@ -137,7 +137,7 @@ def main(yolo):
     bbox_cache = []  # Cache to store bounding boxes for the 9 frames
 
     for frame in all_frames:
-        if frame_cnt % 15 == 0:
+        if frame_cnt % 10 == 0:
 
             image = Image.fromarray(frame[..., ::-1])  # bgr to rgb
             boxs = yolo.detect_image(image)  # n * [topleft_x, topleft_y, w, h]
@@ -347,8 +347,8 @@ def main(yolo):
                                 x1, y1, x2, y2 = f[1], f[2], f[3], f[4]
 
                                 # Calculate and apply 65% margin
-                                margin_x = int(0.65 * (x2 - x1) / 2)
-                                margin_y = int(0.65 * (y2 - y1) / 2)
+                                margin_x = int(0.95 * (x2 - x1) / 2)
+                                margin_y = int(0.70 * (y2 - y1) / 2)
 
                                 # Adjust coordinates
                                 x1 = max(x1 - margin_x, 0)
