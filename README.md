@@ -12,6 +12,16 @@ Simple model to _"Detect/Track"_ and _"Re-identify"_ individuals in different ca
 
 
 # # Introduction
+This repository is forked from https://githubcom/samihormi/Multi-Camera-Person-Tracking-and-Re-Identification and adapted to the specific needs of a project that needs Multi-Person-ReID.
+The following ReadMe stands for itself and is still valid. However whats added to the initial coding base is stated here:
+
+- Select the people you want to track:
+    - After all videos are processed all IDs which were found are displayed to select if it should be tracked with a "y" or "no" in the console.
+    - Everything except the IDs bounding box selected with "y" is blacked out in the video - This ensures that in later processing stages only the correct person is subject to further evaluations.
+- Speed up the process:
+    - Include the option to look only at every n-th frame and apply the bounding-box to every following (n-1)th frame. 
+
+
 This project aims to track people in different videos accounting for different angles.
 
 
