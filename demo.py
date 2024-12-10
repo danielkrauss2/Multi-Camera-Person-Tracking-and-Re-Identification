@@ -90,38 +90,12 @@ def main(yolo):
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    all_frames = []
     video_frame_length = {}
-    frame_counter = 0
-
-    for video in args.videos:
-        loadvideo = LoadVideo(video)
-        video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
-        while True:
-            ret, frame = video_capture.read()
-            if ret is not True:
-                video_capture.release()
-                break
-            all_frames.append(frame)
-            frame_counter += 1
-
-        video_frame_length[video] = frame_counter
-        frame_counter = 0
-
-    frame_nums = len(all_frames)
 
     print("Actual frame length: ", video_frame_length)
 
     tracking_path = out_dir + 'tracking' + '.avi'
     combined_path = out_dir + 'allVideos' + '.avi'
-    if is_vis:
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter(tracking_path, fourcc, frame_rate, (w, h))
-        out2 = cv2.VideoWriter(combined_path, fourcc, frame_rate, (w, h))
-        # Combine all videos
-        for frame in all_frames:
-            out2.write(frame)
-        out2.release()
 
     # Initialize tracking file
     filename = out_dir + '/tracking.txt'
@@ -136,77 +110,64 @@ def main(yolo):
     ids_per_frame = []
     bbox_cache = []  # Cache to store bounding boxes for the 9 frames
 
-    for frame in all_frames:
-        if frame_cnt % 10 == 0:
+    for video in args.videos:
+        loadvideo = LoadVideo(video)
+        video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
 
-            image = Image.fromarray(frame[..., ::-1])  # bgr to rgb
-            boxs = yolo.detect_image(image)  # n * [topleft_x, topleft_y, w, h]
-            features = encoder(frame, boxs)  # n * 128
-            detections = [Detection(bbox, 1.0, feature) for bbox, feature in zip(boxs, features)]  # length = n
-
-            # Run non-maxima suppression.
-            boxes = np.array([d.tlwh for d in detections])
-            scores = np.array([d.confidence for d in detections])
-            indices = preprocessing.delete_overlap_box(boxes, nms_max_overlap, scores)
-            # indices = preprocessing.non_max_suppression(boxes, nms_max_overlap, scores)
-            detections = [detections[i] for i in indices]  # length = len(indices)
-
-            # Cache the detections
-            bbox_cache = detections
-        else:
-            detections = bbox_cache
-
-        text_scale, text_thickness, line_thickness = get_FrameLabels(frame)
-
-        # Call the tracker
-        tracker.predict()
-        tracker.update(detections)
-        tmp_ids = []
-        for track in tracker.tracks:
-            if not track.is_confirmed() or track.time_since_update > 1:
-                continue
-
-            bbox = track.to_tlbr()
-            area = (int(bbox[2]) - int(bbox[0])) * (int(bbox[3]) - int(bbox[1]))
-            if bbox[0] >= 0 and bbox[1] >= 0 and bbox[3] < h and bbox[2] < w:
-                tmp_ids.append(track.track_id)
-                if track.track_id not in track_cnt:
-                    track_cnt[track.track_id] = [
-                        [frame_cnt, int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]), area]
-                    ]
-                    images_by_id[track.track_id] = [frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])]]
-                else:
-                    track_cnt[track.track_id].append([
-                        frame_cnt,
-                        int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
-                        area
-                    ])
-                    images_by_id[track.track_id].append(frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])])
-            cv2_addBox(
-                track.track_id,
-                frame,
-                int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
-                line_thickness,
-                text_thickness,
-                text_scale
-            )
-            write_results(
-                filename,
-                'mot',
-                frame_cnt + 1,
-                str(track.track_id),
-                int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
-                w, h
-            )
-        ids_per_frame.append(set(tmp_ids))
-
-        # save a frame
+        # Output video writer
         if is_vis:
-            out.write(frame)
-        t2 = time.time()
+            tracking_path = out_dir + f'tracking_{Path(video).stem}.avi'
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            out = cv2.VideoWriter(tracking_path, fourcc, frame_rate, (w, h))
 
-        frame_cnt += 1
-        print(frame_cnt, '/', frame_nums)
+        frame_counter = 0
+        bbox_cache = []  # Cache to store bounding boxes for the last 9 frames
+
+        while True:
+            ret, frame = video_capture.read()
+            if not ret:
+                break
+
+            # Only process every 10th frame
+            if frame_counter % 10 == 0:
+                image = Image.fromarray(frame[..., ::-1])  # Convert BGR to RGB
+                boxs = yolo.detect_image(image)
+                features = encoder(frame, boxs)
+                detections = [Detection(bbox, 1.0, feature) for bbox, feature in zip(boxs, features)]
+
+                # Non-maxima suppression
+                boxes = np.array([d.tlwh for d in detections])
+                scores = np.array([d.confidence for d in detections])
+                indices = preprocessing.delete_overlap_box(boxes, nms_max_overlap, scores)
+                detections = [detections[i] for i in indices]
+                bbox_cache = detections
+            else:
+                detections = bbox_cache
+
+            # Tracker update
+            tracker.predict()
+            tracker.update(detections)
+
+            # Visualize and save results
+            for track in tracker.tracks:
+                if not track.is_confirmed() or track.time_since_update > 1:
+                    continue
+                bbox = track.to_tlbr()
+                if is_vis:
+                    text_scale, text_thickness, line_thickness = get_FrameLabels(frame)
+
+                    cv2_addBox(track.track_id, frame, int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
+                               line_thickness, text_thickness, text_scale)
+
+            if is_vis:
+                out.write(frame)
+            frame_counter += 1
+            print(f"Processed frame {frame_counter}")
+
+        if is_vis:
+            out.release()
+        video_capture.release()
+
 
     if is_vis:
         out.release()
@@ -287,104 +248,82 @@ def main(yolo):
             out.release()
         video_capture.release()
 
+
     # Generate a single video with complete MOT/ReID
     if args.all:
-        loadvideo = LoadVideo(combined_path)
-        video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
-
-        # fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        # complete_path = out_dir+'/Complete'+'.avi'
-        # out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
-
         selected_ids = set()  # Set to store selected IDs
         seen_ids = set()  # Set to store seen IDs
 
-        frame_counter = 0
         segment_index = 0
         segment_paths = []
 
-        filename = Path([*video_frame_length][segment_index]).stem
-        out, complete_path = create_video_writer(out_dir, segment_index, filename, frame_rate, w, h)
+        for video in args.videos:
+            loadvideo = LoadVideo(video)
+            video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
 
-        print("Dict of video length: " + str(video_frame_length))
+            filename = Path(video).stem
+            out, complete_path = create_video_writer(out_dir, segment_index, filename, frame_rate, w, h)
+            segment_paths.append(complete_path)
 
-        for frame in range(len(all_frames)):
-            # segment_paths = [complete_path]  # Store all segment paths for final info
+            frame_counter = 0
+            print(f"Processing video: {video}")
 
-            video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame)
-            _, frame2 = video_capture.read()
+            while True:
+                ret, frame2 = video_capture.read()
+                if not ret:
+                    break  # End of video
 
-            # Check if the frame is successfully read
-            if frame2 is None:
-                print(f"Frame {frame} is empty or could not be read, skipping.")
-                continue
+                # Identify new IDs in the current frame
+                new_ids = set()
+                for idx in final_fuse_id:
+                    if idx not in seen_ids:
+                        for i in final_fuse_id[idx]:
+                            for f in track_cnt[i]:
+                                if frame_counter == f[0]:
+                                    new_ids.add(idx)
+                                    seen_ids.add(idx)
+                                    break
 
-            # Identify new IDs in the current frame
-            new_ids = set()
-            for idx in final_fuse_id:
-                if idx not in seen_ids:
-                    for i in final_fuse_id[idx]:
-                        for f in track_cnt[i]:
-                            if frame == f[0]:
-                                new_ids.add(idx)
-                                seen_ids.add(idx)
-                                break
+                # Display frame and get user input for new IDs
+                if new_ids:
+                    new_selected_ids = display_and_select_ids(frame2, final_fuse_id, track_cnt, frame_counter, new_ids)
+                    selected_ids.update(new_selected_ids)
 
-            # Display frame and get user input for new IDs
-            if new_ids:
-                new_selected_ids = display_and_select_ids(frame2, final_fuse_id, track_cnt, frame, new_ids)
-                selected_ids.update(new_selected_ids)
+                # Create a black mask of the same size as frame2
+                mask = np.zeros_like(frame2)
+                frame_height, frame_width = frame2.shape[:2]
 
-            # Create a black mask of the same size as frame2
-            mask = np.zeros_like(frame2)
-            frame_height, frame_width = frame2.shape[:2]
+                for idx in selected_ids:
+                    if idx in final_fuse_id:
+                        for i in final_fuse_id[idx]:
+                            for f in track_cnt[i]:
+                                if frame_counter == f[0]:
+                                    x1, y1, x2, y2 = f[1], f[2], f[3], f[4]
 
-            for idx in selected_ids:
-                if idx in final_fuse_id:
-                    for i in final_fuse_id[idx]:
-                        for f in track_cnt[i]:
-                            if frame == f[0]:
-                                x1, y1, x2, y2 = f[1], f[2], f[3], f[4]
+                                    # Calculate and apply 65% margin
+                                    margin_x = int(0.95 * (x2 - x1) / 2)
+                                    margin_y = int(0.70 * (y2 - y1) / 2)
 
-                                # Calculate and apply 65% margin
-                                margin_x = int(0.95 * (x2 - x1) / 2)
-                                margin_y = int(0.70 * (y2 - y1) / 2)
+                                    # Adjust coordinates
+                                    x1 = max(x1 - margin_x, 0)
+                                    y1 = max(y1 - margin_y, 0)
+                                    x2 = min(x2 + margin_x, frame_width)
+                                    y2 = min(y2 + margin_y, frame_height)
 
-                                # Adjust coordinates
-                                x1 = max(x1 - margin_x, 0)
-                                y1 = max(y1 - margin_y, 0)
-                                x2 = min(x2 + margin_x, frame_width)
-                                y2 = min(y2 + margin_y, frame_height)
+                                    # Copy the detected person area from frame2 to the mask
+                                    mask[y1:y2, x1:x2] = frame2[y1:y2, x1:x2]
 
-                                # Copy the detected person area from frame2 to the mask
-                                mask[y1:y2, x1:x2] = frame2[y1:y2, x1:x2]
+                                    text_scale, text_thickness, line_thickness = get_FrameLabels(frame2)
+                                    cv2_addBox(idx, frame2, f[1], f[2], f[3], f[4], line_thickness, text_thickness,
+                                               text_scale)
 
-                                text_scale, text_thickness, line_thickness = get_FrameLabels(frame2)
-                                cv2_addBox(idx, frame2, f[1], f[2], f[3], f[4], line_thickness, text_thickness,
-                                           text_scale)
+                out.write(mask)
+                print(f"Writing frame {frame_counter} to {complete_path}")
+                frame_counter += 1
 
-            out.write(mask)
-            print(f"Writing frame {frame_counter} to {complete_path}")
-            frame_counter += 1
-
-            print(video_frame_length[[*video_frame_length][segment_index]])
-
-            if frame_counter >= video_frame_length[[*video_frame_length][segment_index]]:
-                out.release()
-                frame_counter = 0
-                segment_index += 1
-
-                try:
-                    filename = Path([*video_frame_length][segment_index]).stem
-
-                    out, complete_path = create_video_writer(out_dir, segment_index, filename, frame_rate, w, h)
-                    segment_paths.append(complete_path)
-
-                except IndexError:
-                    break
-
-        out.release()
-        video_capture.release()
+            out.release()
+            video_capture.release()
+            segment_index += 1
 
         for path in segment_paths:
             print(f'Segment video at {path}')
