@@ -148,16 +148,55 @@ def main(yolo):
             tracker.predict()
             tracker.update(detections)
 
-            # Visualize and save results
+            tmp_ids = []
             for track in tracker.tracks:
                 if not track.is_confirmed() or track.time_since_update > 1:
                     continue
-                bbox = track.to_tlbr()
-                if is_vis:
-                    text_scale, text_thickness, line_thickness = get_FrameLabels(frame)
 
-                    cv2_addBox(track.track_id, frame, int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
-                               line_thickness, text_thickness, text_scale)
+                bbox = track.to_tlbr()  # Convert the bounding box to top-left-bottom-right format
+                area = (int(bbox[2]) - int(bbox[0])) * (int(bbox[3]) - int(bbox[1]))
+
+                # Ensure the bounding box is within frame dimensions
+                if bbox[0] >= 0 and bbox[1] >= 0 and bbox[3] < h and bbox[2] < w:
+                    tmp_ids.append(track.track_id)
+
+                    # Update track_cnt and images_by_id for the current track ID
+                    if track.track_id not in track_cnt:
+                        track_cnt[track.track_id] = [
+                            [frame_counter, int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]), area]
+                        ]
+                        images_by_id[track.track_id] = [frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])]]
+                    else:
+                        track_cnt[track.track_id].append([
+                            frame_counter,
+                            int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
+                            area
+                        ])
+                        images_by_id[track.track_id].append(frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])])
+
+                    # Draw the bounding box and add text to the frame
+                    text_scale, text_thickness, line_thickness = get_FrameLabels(frame)
+                    cv2_addBox(
+                        track.track_id,
+                        frame,
+                        int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
+                        line_thickness,
+                        text_thickness,
+                        text_scale
+                    )
+
+                    # Write results to the tracking output file
+                    write_results(
+                        filename,
+                        'mot',
+                        frame_counter + 1,
+                        str(track.track_id),
+                        int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
+                        w, h
+                    )
+
+            # Append the set of IDs detected in the current frame to ids_per_frame
+            ids_per_frame.append(set(tmp_ids))
 
             if is_vis:
                 out.write(frame)
