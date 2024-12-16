@@ -161,18 +161,30 @@ def main(yolo):
                     tmp_ids.append(track.track_id)
 
                     # Update track_cnt and images_by_id for the current track ID
+                    temp_dir = 'temp_crops'
+                    if not os.path.exists(temp_dir):
+                        os.makedirs(temp_dir)
+
                     if track.track_id not in track_cnt:
                         track_cnt[track.track_id] = [
                             [frame_counter, int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]), area]
                         ]
-                        images_by_id[track.track_id] = [frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])]]
+                        # Save cropped frame to disk
+                        crop_path = os.path.join(temp_dir, f"id_{track.track_id}_frame_{frame_counter}.jpg")
+                        cropped_image = frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])]
+                        cv2.imwrite(crop_path, cropped_image)
+                        images_by_id[track.track_id] = [crop_path]
                     else:
                         track_cnt[track.track_id].append([
                             frame_counter,
                             int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]),
                             area
                         ])
-                        images_by_id[track.track_id].append(frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])])
+                        # Save cropped frame to disk
+                        crop_path = os.path.join(temp_dir, f"id_{track.track_id}_frame_{frame_counter}.jpg")
+                        cropped_image = frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])]
+                        cv2.imwrite(crop_path, cropped_image)
+                        images_by_id[track.track_id].append(crop_path)
 
                     # Draw the bounding box and add text to the frame
                     text_scale, text_thickness, line_thickness = get_FrameLabels(frame)
@@ -224,7 +236,9 @@ def main(yolo):
     feats = dict()
     for i in images_by_id:
         print(f'ID number {i} -> Number of frames {len(images_by_id[i])}')
-        feats[i] = reid._features(images_by_id[i])  # reid._features(images_by_id[i][:min(len(images_by_id[i]),100)])
+        # Load images from disk in batches
+        batch_images = [cv2.imread(img_path) for img_path in images_by_id[i][:min(len(images_by_id[i]), 100)]]
+        feats[i] = reid._features(batch_images)
 
     for f in ids_per_frame:
         if f:
@@ -287,6 +301,13 @@ def main(yolo):
             out.release()
         video_capture.release()
 
+    # Clean up temporary files
+    for track_id, crop_paths in images_by_id.items():
+        for crop_path in crop_paths:
+            if os.path.exists(crop_path):
+                os.remove(crop_path)
+    os.rmdir(temp_dir)
+    print("Temporary files cleaned up.")
 
     # Generate a single video with complete MOT/ReID
     if args.all:
