@@ -68,7 +68,7 @@ class LoadVideo:  # for inference
 def main(yolo):
     print(f'Using {yolo} model')
     # Definition of the parameters
-    max_cosine_distance = 0.2
+    max_cosine_distance = 0.3
     nn_budget = None
     nms_max_overlap = 0.4
 
@@ -77,7 +77,7 @@ def main(yolo):
     encoder = gdet.create_box_encoder(model_filename, batch_size=1)  # use to get feature
 
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
-    tracker = Tracker(metric, max_age=100)
+    tracker = Tracker(metric, max_age=300)
 
     output_frames = []
     output_rectanger = []
@@ -228,7 +228,7 @@ def main(yolo):
 
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
     reid = REID()
-    threshold = 320
+    threshold = 420
     exist_ids = set()
     final_fuse_id = dict()
 
@@ -269,6 +269,7 @@ def main(yolo):
                         continue
                     dis.sort(key=operator.itemgetter(1))
                     if dis[0][1] < threshold:
+                        print(dis[0][1])
                         combined_id = dis[0][0]
                         images_by_id[combined_id] += images_by_id[nid]
                         final_fuse_id[combined_id].append(nid)
