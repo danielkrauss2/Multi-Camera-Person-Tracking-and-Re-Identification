@@ -236,16 +236,6 @@ def main(yolo):
     feats = dict()
     for i in images_by_id:
         print(f'ID number {i} -> Number of frames {len(images_by_id[i])}')
-        # delete the id if the number of frames is less or equal than 30
-        if len(images_by_id[i]) <= 30:
-            # delete entries in track_cnt, images_by_id and ids_per_frame
-            del track_cnt[i]
-            del images_by_id[i]
-            for f in ids_per_frame:
-                if i in f:
-                    f.remove(i)
-            continue
-
         # Load images from disk in batches
         batch_images = [cv2.imread(img_path) for img_path in images_by_id[i][:min(len(images_by_id[i]), 100)]]
         feats[i] = reid._features(batch_images)
