@@ -198,7 +198,7 @@ import os
 import json
 
 
-def main(yolo, args):
+def main(yolo):
     tracking_results_file = "tracking_results.json"
 
     # Check if tracking has already been completed
