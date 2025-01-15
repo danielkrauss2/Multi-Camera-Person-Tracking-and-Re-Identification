@@ -79,11 +79,6 @@ def main(yolo):
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
     tracker = Tracker(metric, max_age=300)
 
-    output_frames = []
-    output_rectanger = []
-    output_areas = []
-    output_wh_ratio = []
-
     is_vis = True
     out_dir = 'videos/output/'
     print('The output folder is', out_dir)
@@ -101,14 +96,11 @@ def main(yolo):
     filename = out_dir + '/tracking.txt'
     open(filename, 'w')
 
-    fps = 0.0
-    frame_cnt = 0
     t1 = time.time()
 
     track_cnt = dict()
     images_by_id = dict()
     ids_per_frame = []
-    bbox_cache = []  # Cache to store bounding boxes for the 9 frames
 
     for video in args.videos:
         loadvideo = LoadVideo(video)
