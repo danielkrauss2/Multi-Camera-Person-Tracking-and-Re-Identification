@@ -144,15 +144,16 @@ def reid_and_selection_phase(args):
     with open(tracking_results_file, "r") as f:
         tracking_results = json.load(f)
 
-    # Group crops by track_id
+    # Group crops by track_id and reuse track_cnt from the tracking phase
     images_by_id = {}
     track_cnt = {}
     for result in tracking_results:
         track_id = result["track_id"]
         if track_id not in images_by_id:
             images_by_id[track_id] = []
-            track_cnt[track_id] = []
         images_by_id[track_id].append(result["crop_path"])
+        if track_id not in track_cnt:
+            track_cnt[track_id] = []
         track_cnt[track_id].append([result["frame"], *result["bbox"]])
 
     # Perform ReID
