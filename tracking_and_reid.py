@@ -179,7 +179,9 @@ def reid_and_selection_phase(args):
         first_frame_with_id = min(track_cnt[new_id], key=lambda x: x[0])[0]
         first_frame_crop_path = images_by_id[new_id][0]
         first_frame = cv2.imread(first_frame_crop_path)
-        user_selected_ids = display_and_select_ids(first_frame, {new_id: track_cnt[new_id]}, track_cnt, first_frame_with_id, {new_id})
+        user_selected_ids = display_and_select_ids(
+            first_frame, {new_id: track_cnt[new_id]}, track_cnt, first_frame_with_id, {new_id}
+        )
         selected_ids.update(user_selected_ids)
 
     # Generate output video based on selected IDs
@@ -222,21 +224,16 @@ def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, code
 def display_and_select_ids(frame, final_fuse_id, track_cnt, current_frame, new_ids):
     displayed_frame = frame.copy()
     for idx in new_ids:
-        for i in final_fuse_id[idx]:
-            for f in track_cnt[i]:
-                if f[0] == current_frame:
-                    x1, y1, x2, y2 = f[1], f[2], f[3], f[4]
-                    cv2.rectangle(displayed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(displayed_frame, f"ID: {idx}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                                (0, 255, 0), 2)
+        for track in final_fuse_id[idx]:
+            x1, y1, x2, y2 = track[1:5]
+            cv2.rectangle(displayed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(displayed_frame, f"ID: {idx}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # Instructions for selecting IDs
     instructions = "Detected new person IDs. Enter 'y' to track or 'n' to ignore each ID."
     cv2.putText(displayed_frame, instructions, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     cv2.imshow("New Person Detected", displayed_frame)
     cv2.waitKey(1)
 
-    # Collect user decisions for each new ID
     selected_ids = set()
     for idx in new_ids:
         while True:
