@@ -41,20 +41,16 @@ def tracking_phase(yolo, args):
     max_cosine_distance = 0.3
     nn_budget = None
     nms_max_overlap = 0.4
-
     model_filename = 'model_data/models/mars-small128.pb'
     encoder = gdet.create_box_encoder(model_filename, batch_size=1)
-
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
     tracker = Tracker(metric, max_age=300)
 
     temp_dir = 'temp_crops'
     os.makedirs(temp_dir, exist_ok=True)
     tracking_results = []
-
-    track_cnt = dict()
-    images_by_id = dict()
-    ids_per_frame = []
+    track_cnt = {}  # Dictionary to store tracking information
+    images_by_id = {}  # Dictionary to store image paths by track ID
 
     for video in args.videos:
         loadvideo = LoadVideo(video)
@@ -88,17 +84,40 @@ def tracking_phase(yolo, args):
                     continue
 
                 bbox = track.to_tlbr()
-                crop_path = os.path.join(temp_dir, f"id_{track.track_id}_frame_{frame_counter}.jpg")
-                cropped_image = frame[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])]
-                cv2.imwrite(crop_path, cropped_image)
+                area = (int(bbox[2]) - int(bbox[0])) * (int(bbox[3]) - int(bbox[1]))
 
-                tracking_results.append({
-                    "video": video,
-                    "frame": frame_counter,
-                    "track_id": track.track_id,
-                    "bbox": [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])],
-                    "crop_path": crop_path
-                })
+                # Ensure bounding box is valid
+                x1, y1, x2, y2 = map(int, bbox)
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(frame.shape[1], x2)
+                y2 = min(frame.shape[0], y2)
+
+                if x2 > x1 and y2 > y1:  # Valid bounding box
+                    crop_path = os.path.join(temp_dir, f"id_{track.track_id}_frame_{frame_counter}.jpg")
+                    cropped_image = frame[y1:y2, x1:x2]
+                    cv2.imwrite(crop_path, cropped_image)
+
+                    if track.track_id not in track_cnt:
+                        # Initialize tracking information and store the first crop
+                        track_cnt[track.track_id] = [
+                            [frame_counter, x1, y1, x2, y2, area]
+                        ]
+                        images_by_id[track.track_id] = [crop_path]
+                    else:
+                        # Update tracking information and add the crop
+                        track_cnt[track.track_id].append([frame_counter, x1, y1, x2, y2, area])
+                        images_by_id[track.track_id].append(crop_path)
+
+                    tracking_results.append({
+                        "video": video,
+                        "frame": frame_counter,
+                        "track_id": track.track_id,
+                        "bbox": [x1, y1, x2, y2],
+                        "crop_path": crop_path
+                    })
+                else:
+                    print(f"Skipped invalid bounding box {bbox} for frame {frame_counter}")
 
             frame_counter += 1
             print(f"Processed frame {frame_counter} of video {video}")
@@ -116,6 +135,7 @@ def reid_and_selection_phase(args):
     reid = REID()
     threshold = 375
 
+    # Load tracking results
     tracking_results_file = "tracking_results.json"
     if not os.path.exists(tracking_results_file):
         print("Error: Tracking results file not found. Please run the tracking phase first.")
@@ -126,11 +146,14 @@ def reid_and_selection_phase(args):
 
     # Group crops by track_id
     images_by_id = {}
+    track_cnt = {}
     for result in tracking_results:
         track_id = result["track_id"]
         if track_id not in images_by_id:
             images_by_id[track_id] = []
+            track_cnt[track_id] = []
         images_by_id[track_id].append(result["crop_path"])
+        track_cnt[track_id].append([result["frame"], *result["bbox"]])
 
     # Perform ReID
     feats = {}
@@ -139,32 +162,117 @@ def reid_and_selection_phase(args):
         batch_images = [cv2.imread(path) for path in crop_paths]
         feats[track_id] = reid._features(batch_images)
 
+    # Identify new persons frame by frame
+    new_person_ids = set()
+    seen_ids = set()
+    for result in tracking_results:
+        track_id = result["track_id"]
+        if track_id not in seen_ids:
+            new_person_ids.add(track_id)
+            seen_ids.add(track_id)
+
+    # User Selection for New Persons
     selected_ids = set()
-    for track_id in feats.keys():
-        user_input = input(f"Do you want to track person with ID {track_id}? (y/n): ")
-        if user_input.lower() == 'y':
-            selected_ids.add(track_id)
+    for new_id in new_person_ids:
+        print(f"Displaying selections for ID: {new_id}")
+        first_frame_with_id = min(track_cnt[new_id], key=lambda x: x[0])[0]
+        first_frame_crop_path = images_by_id[new_id][0]
+        first_frame = cv2.imread(first_frame_crop_path)
+        user_selected_ids = display_and_select_ids(first_frame, {new_id: track_cnt[new_id]}, track_cnt, first_frame_with_id, {new_id})
+        selected_ids.update(user_selected_ids)
 
     # Generate output video based on selected IDs
     print("Generating output video for selected IDs...")
     output_video_path = "selected_persons.avi"
-    frame_size = (tracking_results[0]["bbox"][2], tracking_results[0]["bbox"][3])
+    first_frame = cv2.imread(tracking_results[0]["crop_path"])
+    frame_height, frame_width = first_frame.shape[:2]
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-    out = cv2.VideoWriter(output_video_path, fourcc, 30, frame_size)
+    out = cv2.VideoWriter(output_video_path, fourcc, 30, (frame_width, frame_height))
 
     for result in tracking_results:
         if result["track_id"] in selected_ids:
             frame = cv2.imread(result["crop_path"])
-            out.write(frame)
+            if frame is not None:
+                out.write(frame)
 
     out.release()
     print(f"Output video saved to '{output_video_path}'")
 
+    # Clean up temporary files
     for result in tracking_results:
         if os.path.exists(result["crop_path"]):
             os.remove(result["crop_path"])
     print("ReID and Selection Phase Completed. Temporary files cleaned.")
 
+
+def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, codec='MJPG'):
+    complete_path = os.path.join(out_dir, filename + "_" + str(segment_index) + ".avi")
+    fourcc = cv2.VideoWriter_fourcc(*codec)
+    out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
+    return out, complete_path
+
+
+def display_and_select_ids(frame, final_fuse_id, track_cnt, current_frame, new_ids):
+    displayed_frame = frame.copy()
+    for idx in new_ids:
+        for i in final_fuse_id[idx]:
+            for f in track_cnt[i]:
+                if f[0] == current_frame:
+                    x1, y1, x2, y2 = f[1], f[2], f[3], f[4]
+                    cv2.rectangle(displayed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(displayed_frame, f"ID: {idx}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (0, 255, 0), 2)
+
+    # Instructions for selecting IDs
+    instructions = "Detected new person IDs. Enter 'y' to track or 'n' to ignore each ID."
+    cv2.putText(displayed_frame, instructions, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    cv2.imshow("New Person Detected", displayed_frame)
+    cv2.waitKey(1)
+
+    # Collect user decisions for each new ID
+    selected_ids = set()
+    for idx in new_ids:
+        while True:
+            user_input = input(f"Do you want to track person with ID {idx}? (y/n): ")
+            if user_input.lower() in ['y', 'n']:
+                if user_input.lower() == 'y':
+                    selected_ids.add(idx)
+                break
+            else:
+                print("Invalid input. Please enter 'y' or 'n'.")
+
+    cv2.destroyAllWindows()
+    return selected_ids
+
+
+def get_FrameLabels(frame):
+    text_scale = max(1, frame.shape[1] / 1600.)
+    text_thickness = 1 if text_scale > 1.1 else 1
+    line_thickness = max(1, int(frame.shape[1] / 500.))
+    return text_scale, text_thickness, line_thickness
+
+
+def cv2_addBox(track_id, frame, x1, y1, x2, y2, line_thickness, text_thickness, text_scale):
+    color = get_color(abs(track_id))
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color=color, thickness=line_thickness)
+    cv2.putText(
+        frame, str(track_id), (x1, y1 + 30), cv2.FONT_HERSHEY_PLAIN, text_scale, (0, 0, 255), thickness=text_thickness)
+
+
+def write_results(filename, data_type, w_frame_id, w_track_id, w_x1, w_y1, w_x2, w_y2, w_wid, w_hgt):
+    if data_type == 'mot':
+        save_format = '{frame},{id},{x1},{y1},{x2},{y2},{w},{h}\n'
+    else:
+        raise ValueError(data_type)
+    with open(filename, 'a') as f:
+        line = save_format.format(frame=w_frame_id, id=w_track_id, x1=w_x1, y1=w_y1, x2=w_x2, y2=w_y2, w=w_wid, h=w_hgt)
+        f.write(line)
+
+
+def get_color(idx):
+    idx = idx * 3
+    color = ((37 * idx) % 255, (17 * idx) % 255, (29 * idx) % 255)
+    return color
 
 def main(yolo):
     tracking_results_file = "tracking_results.json"
