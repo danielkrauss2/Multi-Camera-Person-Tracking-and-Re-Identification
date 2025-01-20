@@ -179,50 +179,40 @@ def reid_and_selection_phase(args):
         first_frame_with_id = min(track_cnt[new_id], key=lambda x: x[0])[0]
         first_frame_crop_path = images_by_id[new_id][0]
         first_frame = cv2.imread(first_frame_crop_path)
-        user_selected_ids = display_and_select_ids(
-            first_frame, {new_id: track_cnt[new_id]}, track_cnt, first_frame_with_id, {new_id}
-        )
+        user_selected_ids = display_and_select_ids(first_frame, {new_id: track_cnt[new_id]})
         selected_ids.update(user_selected_ids)
 
-    # Generate output video with masked regions
-    print("Generating output video with masked areas for non-selected persons...")
-    output_video_path = "masked_selected_persons.avi"
-    first_frame_path = tracking_results[0]["crop_path"]
-    first_frame = cv2.imread(first_frame_path)
+    # Generate output video based on selected IDs
+    print("Generating output video for selected IDs...")
+    output_video_path = "selected_persons.avi"
+    loadvideo = LoadVideo(args.videos[0])
+    video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
 
-    if first_frame is None:
-        raise ValueError("Error: The first frame is None. Check the tracking results.")
-
-    frame_height, frame_width = first_frame.shape[:2]
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-    out = cv2.VideoWriter(output_video_path, fourcc, 30, (frame_width, frame_height))
+    out = cv2.VideoWriter(output_video_path, fourcc, frame_rate, (w, h))
 
-    # Iterate through the video frames
-    for video in args.videos:
-        loadvideo = LoadVideo(video)
-        video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
+    frame_counter = 0
+    while True:
+        ret, frame = video_capture.read()
+        if not ret:
+            break
 
-        frame_counter = 0
-        while True:
-            ret, frame = video_capture.read()
-            if not ret:
-                break  # End of video
+        # Create a mask with all areas blacked out
+        mask = np.zeros_like(frame)
 
-            mask = np.zeros_like(frame)  # Initialize the mask for the frame
+        for track_id in selected_ids:
+            if track_id in track_cnt:
+                for bbox in track_cnt[track_id]:
+                    if bbox[0] == frame_counter:
+                        x1, y1, x2, y2 = bbox[1:]
+                        mask[y1:y2, x1:x2] = frame[y1:y2, x1:x2]
 
-            for result in tracking_results:
-                if result["frame"] == frame_counter and result["track_id"] in selected_ids:
-                    # Get bounding box and copy that area to the mask
-                    x1, y1, x2, y2 = result["bbox"]
-                    mask[y1:y2, x1:x2] = frame[y1:y2, x1:x2]  # Retain only the areas within the bounding boxes
-
-            out.write(mask)  # Write the masked frame
-            frame_counter += 1
-
-        video_capture.release()
+        out.write(mask)
+        frame_counter += 1
 
     out.release()
-    print(f"Masked video saved to '{output_video_path}'")
+    video_capture.release()
+    print(f"Output video saved to '{output_video_path}'")
 
     # Clean up temporary files
     for result in tracking_results:
@@ -230,31 +220,27 @@ def reid_and_selection_phase(args):
             os.remove(result["crop_path"])
     print("ReID and Selection Phase Completed. Temporary files cleaned.")
 
-
 def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, codec='MJPG'):
     complete_path = os.path.join(out_dir, filename + "_" + str(segment_index) + ".avi")
     fourcc = cv2.VideoWriter_fourcc(*codec)
     out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
     return out, complete_path
 
-
-def display_and_select_ids(frame, final_fuse_id, track_cnt, current_frame, new_ids):
+def display_and_select_ids(frame, final_fuse_id):
     displayed_frame = frame.copy()
-    for idx in new_ids:
-        for track in final_fuse_id[idx]:
-            x1, y1, x2, y2 = track[1:5]
+    for idx, bboxes in final_fuse_id.items():
+        for bbox in bboxes:
+            x1, y1, x2, y2 = bbox[1:]
             cv2.rectangle(displayed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(displayed_frame, f"ID: {idx}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # Instructions for selecting IDs
     instructions = "Detected new person IDs. Enter 'y' to track or 'n' to ignore each ID."
     cv2.putText(displayed_frame, instructions, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     cv2.imshow("New Person Detected", displayed_frame)
     cv2.waitKey(1)
 
-    # Collect user decisions for each new ID
     selected_ids = set()
-    for idx in new_ids:
+    for idx in final_fuse_id.keys():
         while True:
             user_input = input(f"Do you want to track person with ID {idx}? (y/n): ")
             if user_input.lower() in ['y', 'n']:
@@ -267,20 +253,17 @@ def display_and_select_ids(frame, final_fuse_id, track_cnt, current_frame, new_i
     cv2.destroyAllWindows()
     return selected_ids
 
-
 def get_FrameLabels(frame):
     text_scale = max(1, frame.shape[1] / 1600.)
     text_thickness = 1 if text_scale > 1.1 else 1
     line_thickness = max(1, int(frame.shape[1] / 500.))
     return text_scale, text_thickness, line_thickness
 
-
 def cv2_addBox(track_id, frame, x1, y1, x2, y2, line_thickness, text_thickness, text_scale):
     color = get_color(abs(track_id))
     cv2.rectangle(frame, (x1, y1), (x2, y2), color=color, thickness=line_thickness)
     cv2.putText(
         frame, str(track_id), (x1, y1 + 30), cv2.FONT_HERSHEY_PLAIN, text_scale, (0, 0, 255), thickness=text_thickness)
-
 
 def write_results(filename, data_type, w_frame_id, w_track_id, w_x1, w_y1, w_x2, w_y2, w_wid, w_hgt):
     if data_type == 'mot':
@@ -290,7 +273,6 @@ def write_results(filename, data_type, w_frame_id, w_track_id, w_x1, w_y1, w_x2,
     with open(filename, 'a') as f:
         line = save_format.format(frame=w_frame_id, id=w_track_id, x1=w_x1, y1=w_y1, x2=w_x2, y2=w_y2, w=w_wid, h=w_hgt)
         f.write(line)
-
 
 def get_color(idx):
     idx = idx * 3
