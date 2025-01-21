@@ -241,7 +241,7 @@ def reid_and_selection_phase(args):
 
     # Clean up temporary files
     for result in tracking_results:
-        if os.path.exists(result["crop_path"]):
+        if "frame_path" in result and os.path.exists(result["frame_path"]):
             os.remove(result["crop_path"])
     print("ReID and Selection Phase Completed. Temporary files cleaned.")
 
