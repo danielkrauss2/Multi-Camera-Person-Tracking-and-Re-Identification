@@ -144,41 +144,68 @@ def reid_and_selection_phase(args):
     with open(tracking_results_file, "r") as f:
         tracking_results = json.load(f)
 
-    # Group crops by track_id and reuse track_cnt from the tracking phase
+    # Group frames and bounding boxes by track_id
     images_by_id = {}
     track_cnt = {}
+    frames_by_id = {}
     for result in tracking_results:
         track_id = result["track_id"]
         if track_id not in images_by_id:
             images_by_id[track_id] = []
-        images_by_id[track_id].append(result["crop_path"])
+            frames_by_id[track_id] = set()
+        images_by_id[track_id].append(result)
+        frames_by_id[track_id].add(result["frame"])
+
         if track_id not in track_cnt:
             track_cnt[track_id] = []
         track_cnt[track_id].append([result["frame"], *result["bbox"]])
 
     # Perform ReID
     feats = {}
-    for track_id, crop_paths in images_by_id.items():
-        print(f"Processing ID {track_id} with {len(crop_paths)} crops.")
-        batch_images = [cv2.imread(path) for path in crop_paths]
+    for track_id, entries in images_by_id.items():
+        print(f"Processing ID {track_id} with {len(entries)} entries.")
+        batch_images = [cv2.imread(result["frame_path"]) for result in entries]
         feats[track_id] = reid._features(batch_images)
 
-    # Identify new persons frame by frame
-    new_person_ids = set()
-    seen_ids = set()
-    for result in tracking_results:
-        track_id = result["track_id"]
-        if track_id not in seen_ids:
-            new_person_ids.add(track_id)
-            seen_ids.add(track_id)
+    final_fuse_id = {}
+    exist_ids = set()
+
+    for frame_set in track_cnt.values():
+        for entry in frame_set:
+            frame_id, x1, y1, x2, y2 = entry
+            for new_id in images_by_id.keys():
+                if new_id not in exist_ids:
+                    dis = []
+                    unpickable = []
+
+                    for key, value in final_fuse_id.items():
+                        if key in exist_ids:
+                            unpickable += value
+
+                    for old_id in (exist_ids - set(unpickable)):
+                        if old_id in feats:
+                            dist = np.mean(reid.compute_distance(feats[new_id], feats[old_id]))
+                            dis.append([old_id, dist])
+
+                    dis.sort(key=lambda x: x[1])
+                    exist_ids.add(new_id)
+
+                    if not dis or dis[0][1] >= threshold:
+                        final_fuse_id[new_id] = [new_id]
+                    else:
+                        combined_id = dis[0][0]
+                        images_by_id[combined_id] += images_by_id[new_id]
+                        final_fuse_id[combined_id].append(new_id)
+
+    print(f"Final fuse IDs: {final_fuse_id}")
 
     # User Selection for New Persons
     selected_ids = set()
-    for new_id in new_person_ids:
+    for new_id in final_fuse_id.keys():
         print(f"Displaying selections for ID: {new_id}")
-        first_frame_with_id = min(track_cnt[new_id], key=lambda x: x[0])[0]
-        first_frame_crop_path = images_by_id[new_id][0]
-        first_frame = cv2.imread(first_frame_crop_path)
+        first_frame_with_id = min(frames_by_id[new_id])
+        frame_path = images_by_id[new_id][0]["frame_path"]
+        first_frame = cv2.imread(frame_path)
         user_selected_ids = display_and_select_ids(first_frame, {new_id: track_cnt[new_id]})
         selected_ids.update(user_selected_ids)
 
@@ -278,6 +305,7 @@ def get_color(idx):
     idx = idx * 3
     color = ((37 * idx) % 255, (17 * idx) % 255, (29 * idx) % 255)
     return color
+
 
 
 
