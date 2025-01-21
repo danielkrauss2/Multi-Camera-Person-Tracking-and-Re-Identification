@@ -94,27 +94,26 @@ def tracking_phase(yolo, args):
                 y2 = min(frame.shape[0], y2)
 
                 if x2 > x1 and y2 > y1:  # Valid bounding box
-                    crop_path = os.path.join(temp_dir, f"id_{track.track_id}_frame_{frame_counter}.jpg")
-                    cropped_image = frame[y1:y2, x1:x2]
-                    cv2.imwrite(crop_path, cropped_image)
+                    frame_path = os.path.join(temp_dir, f"frame_{frame_counter}.jpg")
+                    if not os.path.exists(frame_path):
+                        cv2.imwrite(frame_path, frame)
 
                     if track.track_id not in track_cnt:
-                        # Initialize tracking information and store the first crop
+                        # Initialize tracking information and store the frame path
                         track_cnt[track.track_id] = [
                             [frame_counter, x1, y1, x2, y2, area]
                         ]
-                        images_by_id[track.track_id] = [crop_path]
+                        images_by_id[track.track_id] = [frame_path]
                     else:
-                        # Update tracking information and add the crop
+                        # Update tracking information
                         track_cnt[track.track_id].append([frame_counter, x1, y1, x2, y2, area])
-                        images_by_id[track.track_id].append(crop_path)
 
                     tracking_results.append({
                         "video": video,
                         "frame": frame_counter,
                         "track_id": track.track_id,
                         "bbox": [x1, y1, x2, y2],
-                        "crop_path": crop_path
+                        "frame_path": frame_path
                     })
                 else:
                     print(f"Skipped invalid bounding box {bbox} for frame {frame_counter}")
@@ -128,7 +127,6 @@ def tracking_phase(yolo, args):
     with open("tracking_results.json", "w") as f:
         json.dump(tracking_results, f)
     print("Tracking Phase Completed. Results saved to 'tracking_results.json'")
-
 
 def reid_and_selection_phase(args):
     print("Starting ReID and Selection Phase...")
