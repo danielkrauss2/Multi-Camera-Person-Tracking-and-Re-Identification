@@ -204,7 +204,7 @@ def reid_and_selection_phase(args):
         first_frame_with_id = min(frames_by_id[new_id])
         frame_path = images_by_id[new_id][0]["frame_path"]
         first_frame = cv2.imread(frame_path)
-        user_selected_ids = display_and_select_ids(first_frame, {new_id: track_cnt[new_id]})
+        user_selected_ids = display_and_select_ids(first_frame, {new_id: track_cnt[new_id]}, first_frame_with_id)
         selected_ids.update(user_selected_ids)
 
     # Generate output video based on selected IDs
@@ -242,7 +242,7 @@ def reid_and_selection_phase(args):
     # Clean up temporary files
     for result in tracking_results:
         if "frame_path" in result and os.path.exists(result["frame_path"]):
-            os.remove(result["crop_path"])
+            os.remove(result["frame_path"])
     print("ReID and Selection Phase Completed. Temporary files cleaned.")
 
 def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, codec='MJPG'):
@@ -251,13 +251,14 @@ def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, code
     out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
     return out, complete_path
 
-def display_and_select_ids(frame, final_fuse_id):
+def display_and_select_ids(frame, final_fuse_id, current_frame):
     displayed_frame = frame.copy()
     for idx, bboxes in final_fuse_id.items():
         for bbox in bboxes:
-            x1, y1, x2, y2 = bbox[1:]
-            cv2.rectangle(displayed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(displayed_frame, f"ID: {idx}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            if bbox[0] == current_frame:  # Show only the bounding box for the current frame
+                x1, y1, x2, y2 = bbox[1:]
+                cv2.rectangle(displayed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(displayed_frame, f"ID: {idx}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
     instructions = "Detected new person IDs. Enter 'y' to track or 'n' to ignore each ID."
     cv2.putText(displayed_frame, instructions, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
@@ -303,7 +304,6 @@ def get_color(idx):
     idx = idx * 3
     color = ((37 * idx) % 255, (17 * idx) % 255, (29 * idx) % 255)
     return color
-
 
 
 
