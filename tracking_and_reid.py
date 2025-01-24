@@ -163,7 +163,10 @@ def reid_and_selection_phase(args):
     for track_id, entries in images_by_id.items():
         print(f"Processing ID {track_id} with {len(entries)} entries.")
         batch_images = [cv2.imread(result["frame_path"]) for result in entries]
+        if any(img is None for img in batch_images):
+            print(f"Invalid image detected for track ID {track_id}.")
         feats[track_id] = reid._features(batch_images)
+        print(f"Feature shape for ID {track_id}: {feats[track_id].shape}")
 
     final_fuse_id = {}
     exist_ids = set()
@@ -183,15 +186,18 @@ def reid_and_selection_phase(args):
                     for old_id in (exist_ids - set(unpickable)):
                         if old_id in feats:
                             dist = np.mean(reid.compute_distance(feats[new_id], feats[old_id]))
+                            print(f"Distance between new_id {new_id} and old_id {old_id}: {dist}")
                             dis.append([old_id, dist])
 
                     dis.sort(key=lambda x: x[1])
                     exist_ids.add(new_id)
 
                     if not dis or dis[0][1] >= threshold:
+                        print(f"Track {new_id} is considered a new identity.")
                         final_fuse_id[new_id] = [new_id]
                     else:
                         combined_id = dis[0][0]
+                        print(f"Track {new_id} is fused with existing ID {combined_id}. Distance: {dis[0][1]}")
                         images_by_id[combined_id] += images_by_id[new_id]
                         final_fuse_id[combined_id].append(new_id)
 
