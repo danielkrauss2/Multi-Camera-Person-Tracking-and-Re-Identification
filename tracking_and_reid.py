@@ -158,14 +158,28 @@ def reid_and_selection_phase(args):
             track_cnt[track_id] = []
         track_cnt[track_id].append([result["frame"], *result["bbox"]])
 
-    # Perform ReID
+    # Perform ReID with mini-batches to avoid memory overload
     feats = {}
+    batch_size = 10000  # Adjust based on available RAM
+
     for track_id, entries in images_by_id.items():
         print(f"Processing ID {track_id} with {len(entries)} entries.")
-        batch_images = [cv2.imread(result["frame_path"]) for result in entries]
-        if any(img is None for img in batch_images):
-            print(f"Invalid image detected for track ID {track_id}.")
-        feats[track_id] = reid._features(batch_images)
+        feats[track_id] = []  # Initialize an empty list for the track features
+
+        for i in range(0, len(entries), batch_size):
+            batch_entries = entries[i:i + batch_size]  # Take a batch
+            batch_images = [cv2.imread(result["frame_path"]) for result in batch_entries]
+
+            # Check for invalid images
+            if any(img is None for img in batch_images):
+                print(f"Invalid image detected in batch for track ID {track_id}. Skipping.")
+
+            # Extract features and append to list
+            batch_feats = reid._features(batch_images)
+            feats[track_id].append(batch_feats)  # Store features in a list to avoid huge arrays
+
+        # Convert list of features into a NumPy array
+        feats[track_id] = np.vstack(feats[track_id])  # Stack all batches together
         print(f"Feature shape for ID {track_id}: {feats[track_id].shape}")
 
     final_fuse_id = {}
