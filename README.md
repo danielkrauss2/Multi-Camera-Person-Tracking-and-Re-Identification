@@ -31,35 +31,33 @@ The tracking can be completed using YOLO_v3 or YOLO_v4 and ReID relies on Kaiyan
 # # Installation
  - Download [Anaconda](https://www.anaconda.com/products/individual) if it is not installed on your machine
 
+
+
+ - Clone the repository
+```python
+git clone https://github.com/danielkrauss2/Multi-Camera-Person-Tracking-and-Re-Identification
+```
+- Create a project environment
+```python
+cd Multi-Camera-Person-Tracking-and-Re-Identification
+```
+- If not already happened, install miniconda
 ```
 mkdir -p ~/miniconda3
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
 bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
 rm ~/miniconda3/miniconda.sh
 ```
-
+- Activate the environment
 ```
 source ~/miniconda3/bin/activate
 ```
-
+- Create a new environment
 ```
 conda init --all
-```
-
-```
 conda create -n py37 python=3.7 anaconda
 ```
 
- - Clone the repository
-```python
-git clone https://github.com/samihormi/Multi-Camera-Person-Tracking-and-Re-Identification
-```
-- Create a project environment
-```python
-cd Multi-Camera-Person-Tracking-and-Re-Identification
-conda create --name py37 python=3.7
-conda activate py37
-```
 - Install dependencies
 ```python
 pip install -r requirements.txt
@@ -86,16 +84,16 @@ python convert_y4.py model_data\weights\yolov4.weights model_data\models\yolov4.
 
 # # Demo
 
-You can try out your own videos by running demo.py.
-Under the directory \videos\output, the program will generate a video of the tracking, as well as a video of the tracking and ReID. (as can be seen in the example above)
+You can try out your own videos by running tracking_and_reid.py.
 You should specify the path of the videos and the version of YOLO you would like to use (v3 or v4)
 
 ```python
-python demo.py --videos videos\init\Double1.mp4 videos\init\Single1.mp4 --version v3
+python tracking_and_reid.py --videos videos\init\Double1.mp4 videos\init\Single1.mp4 --version v3
 ```
 
 # # Acknowledgement
 This model is build on top of the incredible work done in the following projects:
+  * https://github.com/samihormi/Multi-Camera-Person-Tracking-and-Re-Identification
   * https://github.com/nwojke/cosine_metric_learning
   * https://github.com/KaiyangZhou/deep-person-reid
   * https://github.com/Qidian213/deep_sort_yolov3
