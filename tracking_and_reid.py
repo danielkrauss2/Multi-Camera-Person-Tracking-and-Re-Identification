@@ -133,14 +133,14 @@ def reid_and_selection_phase(args):
     reid = REID()
     threshold = 375
 
-    # Load tracking results
-    tracking_results_file = "tracking_results.json"
-    if not os.path.exists(tracking_results_file):
+    # Original variable name for tracking results file
+    tracking_file = Path("tracking_results.json")
+    if not tracking_file.exists():
         print("Error: Tracking results file not found. Please run the tracking phase first.")
         return
 
-    with open(tracking_results_file, "r") as f:
-        tracking_results = json.load(f)
+    # Load tracking results
+    tracking_results = json.loads(tracking_file.read_text())
 
     # Group frames and bounding boxes by track_id
     images_by_id = {}
@@ -267,11 +267,13 @@ def reid_and_selection_phase(args):
     print(f"Output video saved to '{output_video_path}'")
 
     # Clean up temp crops and delete the JSON file
-    for res in tracking_results_file:
+    # tracking_results is the list of result dicts loaded earlier
+    for res in tracking_results:
         fp = res.get("frame_path")
         if fp and os.path.exists(fp):
             os.remove(fp)
-    tracking_results.unlink()
+    # Remove the JSON file
+    tracking_file.unlink()
     print("Temporary files and 'tracking_results.json' cleaned.")
 
 
