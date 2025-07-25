@@ -17,6 +17,8 @@ from tools import generate_detections as gdet
 from reid import REID
 from yolo_v3 import YOLO3
 from yolo_v4 import YOLO4
+from collections import defaultdict
+
 
 class LoadVideo:
     def __init__(self, path, img_size=(1088, 608)):
@@ -128,120 +130,143 @@ def tracking_phase(yolo, args):
         json.dump(tracking_results, f)
     print("Tracking Phase Completed. Results saved to 'tracking_results.json'")
 
-def reid_and_selection_phase(args):
-    print("Starting ReID and Selection Phase...")
-    reid = REID()
-    threshold = 375
+# ────────────────────────────────────────────────────────────────────────────────
+# Helper: union-find based clustering of track IDs
+# ────────────────────────────────────────────────────────────────────────────────
+def fuse_by_reid(representatives: dict[int, np.ndarray],
+                 threshold: float = 0.35) -> dict[int, list[int]]:
+    """
+    representatives : dict {track_id: 1×d vector (ℓ2-normalised)}
+    Returns         : dict {root_id : [member_id, ...]}
+    """
+    keys   = list(representatives.keys())
+    feats  = np.stack([representatives[k] for k in keys])
+    # cosine distance matrix
+    dists  = 1.0 - feats @ feats.T
 
-    # Original variable name for tracking results file
+    parent = {k: k for k in keys}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]  # path compression
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            # keep the smaller track id as root (arbitrary but stable)
+            if rx < ry:
+                parent[ry] = rx
+            else:
+                parent[rx] = ry
+
+    # upper-triangular loop
+    for i in range(len(keys)):
+        for j in range(i + 1, len(keys)):
+            if dists[i, j] < threshold:
+                union(keys[i], keys[j])
+
+    clusters = defaultdict(list)
+    for k in keys:
+        clusters[find(k)].append(k)
+    return clusters
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Helper: merge bookkeeping dicts according to clusters
+# ────────────────────────────────────────────────────────────────────────────────
+def merge_clusters_into_dicts(clusters, images_by_id, track_cnt):
+    """
+    Modifies images_by_id and track_cnt *in place* so that all member IDs
+    are moved under the root ID defined in clusters.
+    """
+    for root, members in clusters.items():
+        for mid in members:
+            if mid == root:
+                continue
+            # extend & delete
+            images_by_id[root].extend(images_by_id.pop(mid, []))
+            track_cnt[root].extend(track_cnt.pop(mid, []))
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Re-ID and selection phase (reworked)
+# ────────────────────────────────────────────────────────────────────────────────
+def reid_and_selection_phase(args):
+    print("Starting Re-ID and Selection Phase...")
+    reid = REID()
+    THRESHOLD = 0.35                # cosine distance threshold
+
     tracking_file = Path("tracking_results.json")
     if not tracking_file.exists():
-        print("Error: Tracking results file not found. Please run the tracking phase first.")
+        print("Error: tracking_results.json not found – run tracking first.")
         return
 
-    # Load tracking results
     tracking_results = json.loads(tracking_file.read_text())
 
-    # Group frames and bounding boxes by track_id
-    images_by_id = {}
-    track_cnt = {}
-    frames_by_id = {}
-    for result in tracking_results:
-        track_id = result["track_id"]
-        if track_id not in images_by_id:
-            images_by_id[track_id] = []
-            frames_by_id[track_id] = set()
-        images_by_id[track_id].append(result)
-        frames_by_id[track_id].add(result["frame"])
+    # Group frames and boxes by track_id
+    images_by_id = defaultdict(list)
+    track_cnt    = defaultdict(list)
+    frames_by_id = defaultdict(set)
 
-        if track_id not in track_cnt:
-            track_cnt[track_id] = []
-        track_cnt[track_id].append([result["frame"], *result["bbox"]])
+    for res in tracking_results:
+        tid = res["track_id"]
+        images_by_id[tid].append(res)
+        frames_by_id[tid].add(res["frame"])
+        track_cnt[tid].append([res["frame"], *res["bbox"]])
 
-    # Perform ReID with mini-batches to avoid memory overload
+    # ── Extract features & build representative vector per track ───────────────
     feats = {}
-    batch_size = 10000  # Adjust based on available RAM
+    BATCH = 10000
+    for tid, entries in images_by_id.items():
+        all_feats = []
+        for i in range(0, len(entries), BATCH):
+            ims = [cv2.imread(e["frame_path"]) for e in entries[i:i+BATCH]]
+            ims = [im for im in ims if im is not None]
+            if not ims:
+                continue
+            batch_feats = reid._features(ims)
+            all_feats.append(batch_feats)
+        if not all_feats:
+            continue
+        all_feats = np.vstack(all_feats)
+        feats[tid] = all_feats
 
-    for track_id, entries in images_by_id.items():
-        print(f"Processing ID {track_id} with {len(entries)} entries.")
-        feats[track_id] = []  # Initialize an empty list for the track features
+    # build ℓ2-normalised representative vector
+    representatives = {}
+    for tid, f in feats.items():
+        rep = f.mean(axis=0)
+        rep /= (np.linalg.norm(rep) + 1e-12)
+        representatives[tid] = rep
 
-        for i in range(0, len(entries), batch_size):
-            batch_entries = entries[i:i + batch_size]  # Take a batch
-            batch_images = [cv2.imread(result["frame_path"]) for result in batch_entries]
+    print(f"Computed representatives for {len(representatives)} tracks.")
+    clusters = fuse_by_reid(representatives, THRESHOLD)
+    print(f"→ {len(clusters)} unique IDs after fusion.")
 
-            # Check for invalid images
-            if any(img is None for img in batch_images):
-                print(f"Invalid image detected in batch for track ID {track_id}. Skipping.")
+    # merge bookkeeping dicts so that only root IDs remain
+    merge_clusters_into_dicts(clusters, images_by_id, track_cnt)
 
-            # Extract features and append to list
-            batch_feats = reid._features(batch_images)
-            feats[track_id].append(batch_feats)  # Store features in a list to avoid huge arrays
-
-        # Convert list of features into a NumPy array
-        feats[track_id] = np.vstack(feats[track_id])  # Stack all batches together
-        print(f"Feature shape for ID {track_id}: {feats[track_id].shape}")
-
-    final_fuse_id = {}
-    exist_ids = set()
-
-    for frame_set in track_cnt.values():
-        for entry in frame_set:
-            frame_id, x1, y1, x2, y2 = entry
-            for new_id in images_by_id.keys():
-                if new_id not in exist_ids:
-                    dis = []
-                    unpickable = []
-
-                    for key, value in final_fuse_id.items():
-                        if key in exist_ids:
-                            unpickable += value
-
-                    for old_id in (exist_ids - set(unpickable)):
-                        if old_id in feats:
-                            dist = np.mean(reid.compute_distance(feats[new_id], feats[old_id]))
-                            print(f"Distance between new_id {new_id} and old_id {old_id}: {dist}")
-                            dis.append([old_id, dist])
-
-                    dis.sort(key=lambda x: x[1])
-                    exist_ids.add(new_id)
-
-                    if not dis or dis[0][1] >= threshold:
-                        print(f"Track {new_id} is considered a new identity.")
-                        final_fuse_id[new_id] = [new_id]
-                    else:
-                        combined_id = dis[0][0]
-                        print(f"Track {new_id} is fused with existing ID {combined_id}. Distance: {dis[0][1]}")
-                        images_by_id[combined_id] += images_by_id[new_id]
-                        final_fuse_id[combined_id].append(new_id)
-
-    print(f"Final fuse IDs: {final_fuse_id}")
-
-    # User Selection for New Persons
+    # ── User selection phase ───────────────────────────────────────
     selected_ids = set()
-    for new_id in final_fuse_id.keys():
-        print(f"Displaying selections for ID: {new_id}")
-        first_frame_with_id = min(frames_by_id[new_id])
-        frame_path = images_by_id[new_id][0]["frame_path"]
-        first_frame = cv2.imread(frame_path)
-        user_selected_ids = display_and_select_ids(first_frame, {new_id: track_cnt[new_id]}, first_frame_with_id)
-        selected_ids.update(user_selected_ids)
+    for root_id in clusters.keys():
+        first_frame_idx = min(frames_by_id[root_id])
+        frame_path = images_by_id[root_id][0]["frame_path"]
+        frame      = cv2.imread(frame_path)
+        chosen = display_and_select_ids(frame,
+                                        {root_id: track_cnt[root_id]},
+                                        first_frame_idx)
+        selected_ids.update(chosen)
 
+    # ── Generate output video with masked IDs  ──────────────────────
     print("Generating output video for selected IDs...")
-    # Create output folder inside input video's directory
     video_input = Path(args.videos[0])
-    out_dir = video_input.parent / "output"
+    out_dir     = video_input.parent / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Rename output file with '_output' suffix
-    base_name = video_input.stem
-    output_video_path = out_dir / f"{base_name}_output.avi"
-
+    output_video_path = out_dir / f"{video_input.stem}_output.avi"
 
     loadvideo = LoadVideo(args.videos[0])
     video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
-
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-    out = cv2.VideoWriter(output_video_path, fourcc, frame_rate, (w, h))
+    out    = cv2.VideoWriter(str(output_video_path), fourcc, frame_rate, (w, h))
 
     frame_counter = 0
     while True:
@@ -249,33 +274,31 @@ def reid_and_selection_phase(args):
         if not ret:
             break
 
-        # Create a mask with all areas blacked out
         mask = np.zeros_like(frame)
-
-        for track_id in selected_ids:
-            if track_id in track_cnt:
-                for bbox in track_cnt[track_id]:
-                    if bbox[0] == frame_counter:
-                        x1, y1, x2, y2 = bbox[1:]
-                        mask[y1:y2, x1:x2] = frame[y1:y2, x1:x2]
+        for tid in selected_ids:
+            for bbox in track_cnt.get(tid, []):
+                if bbox[0] == frame_counter:
+                    _, x1, y1, x2, y2 = bbox
+                    mask[y1:y2, x1:x2] = frame[y1:y2, x1:x2]
 
         out.write(mask)
         frame_counter += 1
 
     out.release()
     video_capture.release()
-    print(f"Output video saved to '{output_video_path}'")
+    print(f"Output video saved to {output_video_path}")
 
-    # Clean up temp crops and delete the JSON file
-    # tracking_results is the list of result dicts loaded earlier
+    # ── Clean-up temp crops and JSON ───────────────────────────────────────────
     for res in tracking_results:
         fp = res.get("frame_path")
         if fp and os.path.exists(fp):
             os.remove(fp)
-    # Remove the JSON file
-    tracking_file.unlink()
-    print("Temporary files and 'tracking_results.json' cleaned.")
+    tracking_file.unlink(missing_ok=True)
+    print("Temporary crops & tracking_results.json removed.")
 
+# ────────────────────────────────────────────────────────────────────────────────
+# Misc helper functions
+# ────────────────────────────────────────────────────────────────────────────────
 
 def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, codec='MJPG'):
     complete_path = os.path.join(out_dir, filename + "_" + str(segment_index) + ".avi")
