@@ -227,9 +227,16 @@ def reid_and_selection_phase(args):
         user_selected_ids = display_and_select_ids(first_frame, {new_id: track_cnt[new_id]}, first_frame_with_id)
         selected_ids.update(user_selected_ids)
 
-    # Generate output video based on selected IDs
     print("Generating output video for selected IDs...")
-    output_video_path = "selected_persons.avi"
+    # Create output folder inside input video's directory
+    video_input = Path(args.videos[0])
+    out_dir = video_input.parent / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Rename output file with '_output' suffix
+    base_name = video_input.stem
+    output_video_path = out_dir / f"{base_name}_output.avi"
+
+
     loadvideo = LoadVideo(args.videos[0])
     video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
 
@@ -259,11 +266,14 @@ def reid_and_selection_phase(args):
     video_capture.release()
     print(f"Output video saved to '{output_video_path}'")
 
-    # Clean up temporary files
-    for result in tracking_results:
-        if "frame_path" in result and os.path.exists(result["frame_path"]):
-            os.remove(result["frame_path"])
-    print("ReID and Selection Phase Completed. Temporary files cleaned.")
+    # Clean up temp crops and delete the JSON file
+    for res in tracking_results_file:
+        fp = res.get("frame_path")
+        if fp and os.path.exists(fp):
+            os.remove(fp)
+    tracking_results.unlink()
+    print("Temporary files and 'tracking_results.json' cleaned.")
+
 
 def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, codec='MJPG'):
     complete_path = os.path.join(out_dir, filename + "_" + str(segment_index) + ".avi")
@@ -327,7 +337,7 @@ def get_color(idx):
 
 
 
-def main(yolo):
+def main(yolo, args):
     tracking_results_file = "tracking_results.json"
 
     if os.path.exists(tracking_results_file):
@@ -346,4 +356,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     yolo = YOLO3() if args.version == 'yolo_v3' else YOLO4()
-    main(yolo)
+    main(yolo, args)
