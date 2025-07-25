@@ -1,5 +1,6 @@
 # ! /usr/bin/env python
 # -*- coding: utf-8 -*-
+from __future__ import annotations      # ← add this line right at the top
 
 import os
 import json
@@ -18,6 +19,7 @@ from reid import REID
 from yolo_v3 import YOLO3
 from yolo_v4 import YOLO4
 from collections import defaultdict
+
 
 
 class LoadVideo:
