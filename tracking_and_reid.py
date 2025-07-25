@@ -228,8 +228,11 @@ def reid_and_selection_phase(args):
     feats = {}
     BATCH = 10000                     # adjust if you want smaller mini-batches
 
+    total_tracks = len(images_by_id)
+    print("Total Persons found: ", total_tracks)
+
     for tid, entries in images_by_id.items():
-        print(f"[ReID] extracting features for track {tid} "
+        print(f"[ReID] extracting features for person {tid} "
               f"({len(entries)} crops)")
         all_feats = []
 
