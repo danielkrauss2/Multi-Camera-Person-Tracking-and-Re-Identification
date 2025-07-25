@@ -429,7 +429,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--version', help='Model(yolo_v3 or yolo_v4)', default='yolo_v4')
     parser.add_argument('--videos', nargs='+', help='List of videos', required=True)
-    parser.add_argument('--reid_thresh', type=float, default=0.20,
+    parser.add_argument('--reid_thresh', type=float, default=0.10,
                         help='Cosine-distance threshold for ReID fusion '
                              '(lower keeps IDs separate)')
 
