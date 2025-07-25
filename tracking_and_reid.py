@@ -295,7 +295,10 @@ def reid_and_selection_phase(args):
         fp = res.get("frame_path")
         if fp and os.path.exists(fp):
             os.remove(fp)
-    tracking_file.unlink(missing_ok=True)
+
+    if tracking_file.exists():  # Path.unlink has no 'missing_ok' in 3.7
+        tracking_file.unlink()
+
     print("Temporary crops & tracking_results.json removed.")
 
 # ────────────────────────────────────────────────────────────────────────────────
