@@ -196,7 +196,9 @@ def merge_clusters_into_dicts(clusters, images_by_id, track_cnt):
 def reid_and_selection_phase(args):
     print("Starting Re-ID and Selection Phase...")
     reid = REID()
-    #THRESHOLD = 0.35                # cosine distance threshold
+    #THRESHOLD = args.reid_thresh               # cosine distance threshold
+
+    print("Treshold is set to", args.reid_thresh)
 
     tracking_file = Path("tracking_results.json")
     if not tracking_file.exists():
@@ -216,21 +218,46 @@ def reid_and_selection_phase(args):
         frames_by_id[tid].add(res["frame"])
         track_cnt[tid].append([res["frame"], *res["bbox"]])
 
-    # ── Extract features & build representative vector per track ───────────────
+    # ── Extract features & build representative vector per track ────────────
     feats = {}
-    BATCH = 10000
+    BATCH = 10000                     # adjust if you want smaller mini-batches
+
     for tid, entries in images_by_id.items():
         all_feats = []
+
+        # walk through this track’s frames in mini-batches
         for i in range(0, len(entries), BATCH):
-            ims = [cv2.imread(e["frame_path"]) for e in entries[i:i+BATCH]]
-            ims = [im for im in ims if im is not None]
-            if not ims:
+            crops = []
+            for e in entries[i:i + BATCH]:
+                frame = cv2.imread(e["frame_path"])
+                if frame is None:
+                    continue
+
+                # ---------- person crop ----------
+                x1, y1, x2, y2 = e["bbox"]
+                h, w = frame.shape[:2]
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(w - 1, x2), min(h - 1, y2)
+                if x2 <= x1 or y2 <= y1:
+                    continue          # skip empty / invalid boxes
+
+                crop = frame[y1:y2, x1:x2]               # BGR crop
+                crop = cv2.resize(crop, (128, 256),      # many Re-ID nets expect 128×256
+                                  interpolation=cv2.INTER_LINEAR)
+                crops.append(crop)
+                # -----------------------------------
+
+            if not crops:
                 continue
-            batch_feats = reid._features(ims)
+
+            # Re-ID model expects a list/array of images
+            batch_feats = reid._features(crops)
             all_feats.append(batch_feats)
+
         if not all_feats:
             continue
-        all_feats = np.vstack(all_feats)
+
+        all_feats = np.vstack(all_feats)   # shape: (N_frames, feat_dim)
         feats[tid] = all_feats
 
     # build ℓ2-normalised representative vector
