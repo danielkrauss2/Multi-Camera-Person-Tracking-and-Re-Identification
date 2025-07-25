@@ -19,7 +19,7 @@ from reid import REID
 from yolo_v3 import YOLO3
 from yolo_v4 import YOLO4
 from collections import defaultdict
-
+import random, itertools
 
 
 class LoadVideo:
@@ -196,7 +196,7 @@ def merge_clusters_into_dicts(clusters, images_by_id, track_cnt):
 def reid_and_selection_phase(args):
     print("Starting Re-ID and Selection Phase...")
     reid = REID()
-    THRESHOLD = 0.35                # cosine distance threshold
+    #THRESHOLD = 0.35                # cosine distance threshold
 
     tracking_file = Path("tracking_results.json")
     if not tracking_file.exists():
@@ -240,8 +240,24 @@ def reid_and_selection_phase(args):
         rep /= (np.linalg.norm(rep) + 1e-12)
         representatives[tid] = rep
 
+    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    # DEBUG BLOCK
+
+    if len(representatives) > 1:  # nothing to sample if just 1 track
+        pairs = list(itertools.combinations(representatives.keys(), 2))
+        random.shuffle(pairs)
+        pairs = pairs[:200]  # sample at most 200 pairs
+        dists = [1.0 - representatives[a] @ representatives[b] for a, b in pairs]
+        print(f"[ReID debug] sample pairwise distances:"
+              f" min={min(dists):.3f}, median={np.median(dists):.3f},"
+              f" max={max(dists):.3f}")
+    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
     print(f"Computed representatives for {len(representatives)} tracks.")
-    clusters = fuse_by_reid(representatives, THRESHOLD)
+    clusters = fuse_by_reid(representatives, args.reid_thresh)
+
+    #clusters = fuse_by_reid(representatives, THRESHOLD)
     print(f"→ {len(clusters)} unique IDs after fusion.")
 
     # merge bookkeeping dicts so that only root IDs remain
@@ -383,6 +399,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--version', help='Model(yolo_v3 or yolo_v4)', default='yolo_v4')
     parser.add_argument('--videos', nargs='+', help='List of videos', required=True)
+    parser.add_argument('--reid_thresh', type=float, default=0.20,
+                        help='Cosine-distance threshold for ReID fusion '
+                             '(lower keeps IDs separate)')
+
     args = parser.parse_args()
 
     yolo = YOLO3() if args.version == 'yolo_v3' else YOLO4()
