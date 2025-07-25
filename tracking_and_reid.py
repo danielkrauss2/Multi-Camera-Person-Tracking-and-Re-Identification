@@ -136,7 +136,7 @@ def tracking_phase(yolo, args):
 # Helper: union-find based clustering of track IDs
 # ────────────────────────────────────────────────────────────────────────────────
 def fuse_by_reid(representatives: dict[int, np.ndarray],
-                 threshold: float, frames_by_id: dict[int, set[int]]) -> dict[int, list[int]]:
+                 threshold: float, frames_by_id: dict[int, set[int]]) -> tuple[dict[int, list[int]], list[tuple[int, int, float]]]:
     """
     representatives : dict {track_id: 1×d vector (ℓ2-normalised)}
     Returns         : dict {root_id : [member_id, ...]}
@@ -147,6 +147,7 @@ def fuse_by_reid(representatives: dict[int, np.ndarray],
     dists  = 1.0 - feats @ feats.T
 
     parent = {k: k for k in keys}
+    merges = []
 
     def find(x):
         while parent[x] != x:
@@ -154,7 +155,7 @@ def fuse_by_reid(representatives: dict[int, np.ndarray],
             x = parent[x]
         return x
 
-    def union(x, y):
+    def union(x, y, dist: float) -> None:
         rx, ry = find(x), find(y)
         if rx != ry:
             # keep the smaller track id as root (arbitrary but stable)
@@ -162,6 +163,8 @@ def fuse_by_reid(representatives: dict[int, np.ndarray],
                 parent[ry] = rx
             else:
                 parent[rx] = ry
+            merges.append((x, y, dist))
+            print(f"[ReID] fused {x} ← {y}  (dist={dist:.3f})")
 
     for i in range(len(keys)):
         for j in range(i + 1, len(keys)):
@@ -170,12 +173,12 @@ def fuse_by_reid(representatives: dict[int, np.ndarray],
             # NEW: don’t merge if they coexist in any frame
             if frames_by_id[keys[i]] & frames_by_id[keys[j]]:
                 continue  # non-empty intersection → veto
-            union(keys[i], keys[j])
+            union(keys[i], keys[j], dists[i, j])
 
     clusters = defaultdict(list)
     for k in keys:
         clusters[find(k)].append(k)
-    return clusters
+    return clusters, merges
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Helper: merge bookkeeping dicts according to clusters
@@ -226,6 +229,8 @@ def reid_and_selection_phase(args):
     BATCH = 10000                     # adjust if you want smaller mini-batches
 
     for tid, entries in images_by_id.items():
+        print(f"[ReID] extracting features for track {tid} "
+              f"({len(entries)} crops)")
         all_feats = []
 
         # walk through this track’s frames in mini-batches
@@ -285,10 +290,20 @@ def reid_and_selection_phase(args):
 
 
     print(f"Computed representatives for {len(representatives)} tracks.")
-    clusters = fuse_by_reid(representatives, args.reid_thresh, frames_by_id)
+    clusters, merge_log = fuse_by_reid(representatives, args.reid_thresh, frames_by_id)
 
     #clusters = fuse_by_reid(representatives, THRESHOLD)
     print(f"→ {len(clusters)} unique IDs after fusion.")
+
+    print("\n[ReID] fusion summary:")
+    for root, members in clusters.items():
+        if len(members) == 1:
+            print(f"  ID {root}: singleton")
+        else:
+            others = [m for m in members if m != root]
+            print(f"  ID {root}: merged ← {others}")
+    print(f"  total clusters: {len(clusters)}  "
+          f"(from {len(representatives)} original IDs)\n")
 
     # merge bookkeeping dicts so that only root IDs remain
     merge_clusters_into_dicts(clusters, images_by_id, track_cnt)
