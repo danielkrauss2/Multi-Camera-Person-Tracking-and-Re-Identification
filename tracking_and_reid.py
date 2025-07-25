@@ -136,7 +136,7 @@ def tracking_phase(yolo, args):
 # Helper: union-find based clustering of track IDs
 # ────────────────────────────────────────────────────────────────────────────────
 def fuse_by_reid(representatives: dict[int, np.ndarray],
-                 threshold: float = 0.35) -> dict[int, list[int]]:
+                 threshold: float, frames_by_id: dict[int, set[int]]) -> dict[int, list[int]]:
     """
     representatives : dict {track_id: 1×d vector (ℓ2-normalised)}
     Returns         : dict {root_id : [member_id, ...]}
@@ -163,11 +163,14 @@ def fuse_by_reid(representatives: dict[int, np.ndarray],
             else:
                 parent[rx] = ry
 
-    # upper-triangular loop
     for i in range(len(keys)):
         for j in range(i + 1, len(keys)):
-            if dists[i, j] < threshold:
-                union(keys[i], keys[j])
+            if dists[i, j] >= threshold:
+                continue  # not similar enough by appearance
+            # NEW: don’t merge if they coexist in any frame
+            if frames_by_id[keys[i]] & frames_by_id[keys[j]]:
+                continue  # non-empty intersection → veto
+            union(keys[i], keys[j])
 
     clusters = defaultdict(list)
     for k in keys:
@@ -282,7 +285,7 @@ def reid_and_selection_phase(args):
 
 
     print(f"Computed representatives for {len(representatives)} tracks.")
-    clusters = fuse_by_reid(representatives, args.reid_thresh)
+    clusters = fuse_by_reid(representatives, args.reid_thresh, frames_by_id)
 
     #clusters = fuse_by_reid(representatives, THRESHOLD)
     print(f"→ {len(clusters)} unique IDs after fusion.")
