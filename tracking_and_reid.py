@@ -465,9 +465,7 @@ def resize_and_pad(img: np.ndarray,
     h,  w  = img.shape[:2]
 
     scale = min(tgt_w / w, tgt_h / h)
-    #new_w, new_h = int(w * scale), int(h * scale)
-    new_w = max(1, int(w * scale))  # ensure ≥1
-    new_h = max(1, int(h * scale))  # ensure ≥1
+    new_w, new_h = int(w * scale), int(h * scale)
 
     resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
