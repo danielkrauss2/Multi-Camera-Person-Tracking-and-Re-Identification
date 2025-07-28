@@ -22,63 +22,38 @@ def _run_in_batches(f, data_dict, out, batch_size):
 
 
 def extract_image_patch(image, bbox, patch_shape):
-    """Extract image patch from bounding box.
-
-    Parameters
-    ----------
-    image : ndarray
-        The full image.
-    bbox : array_like
-        The bounding box in format (x, y, width, height).
-    patch_shape : Optional[array_like]
-        This parameter can be used to enforce a desired patch shape
-        (height, width). First, the `bbox` is adapted to the aspect ratio
-        of the patch shape, then it is clipped at the image boundaries.
-        If None, the shape is computed from :arg:`bbox`.
-
-    Returns
-    -------
-    ndarray | NoneType
-        An image patch showing the :arg:`bbox`, optionally reshaped to
-        :arg:`patch_shape`.
-        Returns None if the bounding box is empty or fully outside of the image
-        boundaries.
-
     """
-    bbox = np.array(bbox)
-    if patch_shape is not None:
-        # correct aspect ratio to patch shape
-        target_aspect = float(patch_shape[1]) / patch_shape[0]
-        new_width = target_aspect * bbox[3]
-        bbox[0] -= (new_width - bbox[2]) / 2
-        bbox[2] = new_width
+    Crop `image` to the rectangle `bbox` = (x, y, w, h) and letter-box it
+    to `patch_shape` (h, w) **without** changing aspect ratio.
+    """
+    x, y, w_box, h_box = map(int, bbox)
 
-    # convert to top left, bottom right
-    bbox[2:] += bbox[:2]
-    bbox = bbox.astype(np.int)
-
-    # clip at image boundaries
-    bbox[:2] = np.maximum(0, bbox[:2])
-    bbox[2:] = np.minimum(np.asarray(image.shape[:2][::-1]) - 1, bbox[2:])
-    if np.any(bbox[:2] >= bbox[2:]):
+    # Guard against empty / out-of-frame boxes
+    if w_box <= 0 or h_box <= 0:
         return None
-    sx, sy, ex, ey = bbox
+    h_img, w_img = image.shape[:2]
+    x1 = max(0, x)
+    y1 = max(0, y)
+    x2 = min(w_img - 1, x + w_box)
+    y2 = min(h_img - 1, y + h_box)
+    if x2 <= x1 or y2 <= y1:
+        return None
 
-    patch = image[sy:ey, sx:ex]
+    patch = image[y1:y2, x1:x2]                     # raw crop (BGR)
 
-    # --- KEEP ASPECT RATIO ------------------------------------------
-    target_w, target_h = patch_shape[1], patch_shape[0]
+    # ── Letter-box to target size ──────────────────────────────────────
+    tgt_h, tgt_w = patch_shape
     ph, pw = patch.shape[:2]
-    scale = min(target_w / pw, target_h / ph)
+    scale = min(tgt_w / pw, tgt_h / ph)
     new_w, new_h = int(pw * scale), int(ph * scale)
 
     resized = cv2.resize(patch, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-    canvas = np.zeros((target_h, target_w, 3), dtype=patch.dtype)
-    x0 = (target_w - new_w) // 2
-    y0 = (target_h - new_h) // 2
-    canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
-    return canvas  # <── return letter-boxed patch
+    canvas = np.zeros((tgt_h, tgt_w, 3), dtype=patch.dtype)     # black padding
+    dx = (tgt_w - new_w) // 2
+    dy = (tgt_h - new_h) // 2
+    canvas[dy:dy + new_h, dx:dx + new_w] = resized
+    return canvas
 
 
 class ImageEncoder(object):
