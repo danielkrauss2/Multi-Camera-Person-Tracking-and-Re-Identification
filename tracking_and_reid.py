@@ -253,8 +253,9 @@ def reid_and_selection_phase(args):
                     continue          # skip empty / invalid boxes
 
                 crop = frame[y1:y2, x1:x2]               # BGR crop
-                crop = cv2.resize(crop, (128, 256),      # many Re-ID nets expect 128×256
-                                  interpolation=cv2.INTER_LINEAR)
+                # crop = cv2.resize(crop, (128, 256), interpolation=cv2.INTER_LINEAR)      # many Re-ID nets expect 128×256
+                crop = resize_and_pad(crop, (128, 256))  # keeps aspect ratio
+
                 crops.append(crop)
                 # -----------------------------------
 
@@ -440,6 +441,28 @@ def pad_box(x1, y1, x2, y2, pad_ratio, img_w, img_h):
     x2 = min(img_w - 1, x2 + px)
     y2 = min(img_h - 1, y2 + py)
     return x1, y1, x2, y2
+
+def resize_and_pad(img: np.ndarray,
+                   target: tuple[int, int] = (128, 256)
+                   ) -> np.ndarray:
+    """
+    Resize `img` to fit in `target` (w,h) while preserving aspect ratio,
+    then centre-pad with black pixels so the result is exactly target size.
+    """
+    tgt_w, tgt_h = target
+    h,  w  = img.shape[:2]
+
+    scale = min(tgt_w / w, tgt_h / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    canvas = np.zeros((tgt_h, tgt_w, 3), dtype=img.dtype)
+    x0 = (tgt_w - new_w) // 2
+    y0 = (tgt_h - new_h) // 2
+    canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
+    return canvas
+
 
 
 
