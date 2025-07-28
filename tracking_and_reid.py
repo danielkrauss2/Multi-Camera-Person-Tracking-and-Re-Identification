@@ -20,7 +20,7 @@ from yolo_v3 import YOLO3
 from yolo_v4 import YOLO4
 from collections import defaultdict
 import random, itertools
-import math, subprocess, shlex               # add subprocess, shlex if missing
+import math            # ← add once at the top of the file with other imports
 
 
 class LoadVideo:
@@ -41,7 +41,7 @@ class LoadVideo:
         return self.cap, self.frame_rate, self.vw, self.vh
 
 
-def tracking_phase(yolo, args, rot_tag):
+def tracking_phase(yolo, args):
     print("Starting Tracking Phase...")
     max_cosine_distance = 0.3
     nn_budget = None
@@ -67,7 +67,6 @@ def tracking_phase(yolo, args, rot_tag):
             ret, frame = video_capture.read()
             if not ret:
                 break
-            frame = rotate_frame(frame, rot_tag)  # <— add
 
             MIN_WH = 4  # skip boxes thinner / shorter than this many pixels
 
@@ -223,7 +222,7 @@ def merge_clusters_into_dicts(clusters, images_by_id, track_cnt):
 # ────────────────────────────────────────────────────────────────────────────────
 # Re-ID and selection phase (reworked)
 # ────────────────────────────────────────────────────────────────────────────────
-def reid_and_selection_phase(args, rot_tag):
+def reid_and_selection_phase(args):
     print("Starting Re-ID and Selection Phase...")
     reid = REID()
     #THRESHOLD = args.reid_thresh               # cosine distance threshold
@@ -356,26 +355,20 @@ def reid_and_selection_phase(args, rot_tag):
 
     loadvideo = LoadVideo(args.videos[0])
     video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
-
-    out_w, out_h = (h, w) if rot_tag in (90, 270) else (w, h)
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-    out = cv2.VideoWriter(str(output_video_path), fourcc,
-                          frame_rate, (out_w, out_h))
+    out    = cv2.VideoWriter(str(output_video_path), fourcc, frame_rate, (w, h))
 
     frame_counter = 0
     while True:
         ret, frame = video_capture.read()
         if not ret:
             break
-        frame = rotate_frame(frame, rot_tag)  # <— add
 
         mask = np.zeros_like(frame)
         for tid in selected_ids:
             for bbox in track_cnt.get(tid, []):
                 if bbox[0] == frame_counter:
                     _, x1, y1, x2, y2 = bbox
-                    h, w = frame.shape[:2]
-                    x1, y1, x2, y2 = pad_box(x1, y1, x2, y2, 0.20, w, h)  # +20 %
                     mask[y1:y2, x1:x2] = frame[y1:y2, x1:x2]
 
         out.write(mask)
@@ -495,64 +488,18 @@ def resize_and_pad(img: np.ndarray,
     canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
     return canvas
 
-def get_rotation_tag(video_path: str) -> int:
-    """
-    Return rotation in degrees from metadata if present (smartphones) else 0.
-    Requires ffprobe/ffmpeg; if not available just skip and return 0.
-    """
-    cmd = ('ffprobe -v error -select_streams v:0 '
-           '-show_entries stream_tags=rotate '
-           '-of default=nokey=1:noprint_wrappers=1 '
-           f'"{video_path}"')
-    try:
-        out = subprocess.check_output(shlex.split(cmd),
-                                      stderr=subprocess.DEVNULL,
-                                      text=True).strip()
-        return int(out) if out else 0
-    except Exception:
-        return 0
-
-
-def detect_rotation(video_path: str) -> int:
-    """
-    Heuristic: 1) use metadata if present;
-               2) else read first frame: if h>w, assume sideways camera
-                  and rotate 90° clockwise.
-    """
-    tag = get_rotation_tag(video_path)
-    if tag in (90, 180, 270):
-        return tag
-    cap = cv2.VideoCapture(video_path)
-    ok, fr = cap.read()
-    cap.release()
-    if ok and fr.shape[0] > fr.shape[1]:      # portrait stored sideways
-        return 90
-    return 0
-
-
-def rotate_frame(mat: np.ndarray, deg: int) -> np.ndarray:
-    if   deg == 90:
-        return cv2.rotate(mat, cv2.ROTATE_90_CLOCKWISE)
-    elif deg == 180:
-        return cv2.rotate(mat, cv2.ROTATE_180)
-    elif deg == 270:
-        return cv2.rotate(mat, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    return mat
 
 
 
 def main(yolo, args):
-    rot_tag = detect_rotation(args.videos[0])
-
-
     tracking_results_file = "tracking_results.json"
 
     if os.path.exists(tracking_results_file):
         print("Tracking results already exist. Skipping tracking phase.")
     else:
-        tracking_phase(yolo, args, rot_tag)
+        tracking_phase(yolo, args)
 
-    reid_and_selection_phase(args, rot_tag)
+    reid_and_selection_phase(args)
 
 
 if __name__ == '__main__':
