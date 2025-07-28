@@ -355,12 +355,21 @@ def reid_and_selection_phase(args, rot_tag):
     output_video_path = out_dir / f"{video_input.stem}_output.avi"
 
     loadvideo = LoadVideo(args.videos[0])
-    video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
+    video_capture, frame_rate, w_raw, h_raw = loadvideo.get_VideoLabels()
 
-    out_w, out_h = (h, w) if rot_tag in (90, 270) else (w, h)
+    # ── read & rotate the very first frame ─────────────────────────────
+    ok, first = video_capture.read()
+    if not ok:
+        print("Cannot read first frame"); return
+
+    first = rotate_frame(first, rot_tag)
+    h_rot, w_rot = first.shape[:2]
+
+    # ── open the writer with the *rotated* size ────────────────────────
+    output_video_path = out_dir / f"{video_input.stem}_output.avi"
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     out = cv2.VideoWriter(str(output_video_path), fourcc,
-                          frame_rate, (out_w, out_h))
+                          frame_rate, (w_rot, h_rot))
 
     frame_counter = 0
     while True:
@@ -400,11 +409,6 @@ def reid_and_selection_phase(args, rot_tag):
 # Misc helper functions
 # ────────────────────────────────────────────────────────────────────────────────
 
-def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, codec='MJPG'):
-    complete_path = os.path.join(out_dir, filename + "_" + str(segment_index) + ".avi")
-    fourcc = cv2.VideoWriter_fourcc(*codec)
-    out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
-    return out, complete_path
 
 def display_and_select_ids(frame, final_fuse_id, current_frame):
     displayed_frame = frame.copy()
