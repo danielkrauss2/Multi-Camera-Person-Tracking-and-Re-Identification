@@ -495,70 +495,56 @@ def resize_and_pad(img: np.ndarray,
     canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
     return canvas
 
-def get_rotation_tag(video_path: str) -> int:
+def auto_rotation_by_sparse_probe(video_path: str,
+                                  yolo,
+                                  probe_secs=5,
+                                  step_secs=0.5,
+                                  portrait_ratio=1.3,
+                                  vote_thresh=0.6) -> int:
     """
-    Return clockwise rotation (0/90/180/270) needed to display the file
-    upright.  Works for both smartphone `rotate=` tags and GoPro / DJI
-    display-matrix side-data.  Requires ffprobe in PATH.
+    Decide clockwise rotation (0 or 90 °) without metadata.
+    • probe_secs   : examine up to this many seconds from the start
+    • step_secs    : spacing between probe frames
+    • portrait_ratio: h/w must exceed this to count as 'portrait'
+    • vote_thresh  : proportion of portrait votes needed
     """
-    # 1) classic rotate tag -------------------------------------------------
-    cmd = ('ffprobe -v error -select_streams v:0 '
-           '-show_entries stream_tags=rotate '
-           '-of default=nokey=1:noprint_wrappers=1 '
-           f'"{video_path}"')
-    try:
-        out = subprocess.check_output(shlex.split(cmd),
-                                      stderr=subprocess.DEVNULL,
-                                      text=True).strip()
-        if out:
-            return int(out) % 360
-    except Exception:
-        pass
-
-    # 2) GoPro / DJI displaymatrix side-data --------------------------------
-    cmd = ('ffprobe -v error -select_streams v:0 '
-           '-show_entries stream_side_data '
-           '-of json '                 # easier to parse
-           f'"{video_path}"')
-    try:
-        raw = subprocess.check_output(shlex.split(cmd),
-                                      stderr=subprocess.DEVNULL,
-                                      text=True)
-        data = json.loads(raw)
-        side = data["streams"][0].get("side_data_list", [])
-        for entry in side:
-            if entry.get("side_data_type") == "Display Matrix":
-                txt = entry.get("displaymatrix", "")
-                # ffprobe prints "... rotation of -90.00 degrees"
-                m = re.search(r'rotation of ([\-0-9\.]+)', txt)
-                if m:
-                    rot = -float(m.group(1))          # note the sign
-                    rot = int((rot + 360) % 360)      # to 0/90/180/270
-                    return rot
-    except Exception:
-        pass
-
-    return 0                                          # assume upright
-
-
-
-def detect_rotation(video_path: str) -> int:
-    """
-    Heuristic: 1) use metadata if present;
-               2) else read first frame: if h>w, assume sideways camera
-                  and rotate 90° clockwise.
-    """
-    tag = get_rotation_tag(video_path)
-    if tag in (90, 180, 270):
-        return tag
     cap = cv2.VideoCapture(video_path)
-    ok, fr = cap.read()
-    cap.release()
-    print("Shape for rotation tag", fr.shape[0], fr.shape[1])
+    if not cap.isOpened():
+        return 0
 
-    if ok and fr.shape[0] > fr.shape[1]:      # portrait stored sideways
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    total = cap.get(cv2.CAP_PROP_FRAME_COUNT) or fps * probe_secs
+
+    # raster orientation
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if h > w:                    # pixels already portrait → no rotation
+        cap.release()
+        return 0
+
+    step = int(fps * step_secs)
+    max_frame = int(min(total, fps * probe_secs))
+
+    portrait_votes, checked = 0, 0
+
+    for f in range(0, max_frame, step):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, f)
+        ok, fr = cap.read()
+        if not ok:
+            break
+        boxes = yolo.detect_image(Image.fromarray(fr[..., ::-1]))
+        if not boxes:
+            continue
+        x1, y1, x2, y2 = boxes[0]          # first detection only
+        if (y2 - y1) > portrait_ratio * (x2 - x1):
+            portrait_votes += 1
+        checked += 1
+
+    cap.release()
+    if checked and portrait_votes / checked >= vote_thresh:
         return 90
     return 0
+                                      # assume upright
 
 
 def rotate_frame(mat: np.ndarray, deg: int) -> np.ndarray:
@@ -573,7 +559,7 @@ def rotate_frame(mat: np.ndarray, deg: int) -> np.ndarray:
 
 
 def main(yolo, args):
-    rot_tag = detect_rotation(args.videos[0])
+    rot_tag = auto_rotation_by_sparse_probe(args.videos[0], yolo)
     print("Rotation tag detected:", rot_tag)
 
     tracking_results_file = "tracking_results.json"
