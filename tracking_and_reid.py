@@ -41,7 +41,7 @@ class LoadVideo:
         return self.cap, self.frame_rate, self.vw, self.vh
 
 
-def tracking_phase(yolo, args):
+def tracking_phase(yolo, args, rot_tag):
     print("Starting Tracking Phase...")
     max_cosine_distance = 0.3
     nn_budget = None
@@ -67,6 +67,7 @@ def tracking_phase(yolo, args):
             ret, frame = video_capture.read()
             if not ret:
                 break
+            frame = rotate_frame(frame, rot_tag)  # <— add
 
             MIN_WH = 4  # skip boxes thinner / shorter than this many pixels
 
@@ -222,9 +223,10 @@ def merge_clusters_into_dicts(clusters, images_by_id, track_cnt):
 # ────────────────────────────────────────────────────────────────────────────────
 # Re-ID and selection phase (reworked)
 # ────────────────────────────────────────────────────────────────────────────────
-def reid_and_selection_phase(args):
+def reid_and_selection_phase(args, rot_tag):
     print("Starting Re-ID and Selection Phase...")
     reid = REID()
+    #THRESHOLD = args.reid_thresh               # cosine distance threshold
 
     print("Treshold is set to", args.reid_thresh)
 
@@ -360,6 +362,7 @@ def reid_and_selection_phase(args):
     if not ok:
         print("Cannot read first frame"); return
 
+    first = rotate_frame(first, rot_tag)
     h_rot, w_rot = first.shape[:2]
 
     # ── open the writer with the *rotated* size ────────────────────────
@@ -373,6 +376,7 @@ def reid_and_selection_phase(args):
         ret, frame = video_capture.read()
         if not ret:
             break
+        frame = rotate_frame(frame, rot_tag)  # <— add
 
         mask = np.zeros_like(frame)
         for tid in selected_ids:
@@ -495,16 +499,86 @@ def resize_and_pad(img: np.ndarray,
     canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
     return canvas
 
+def auto_rotation_by_sparse_probe(video_path: str,
+                                  yolo,
+                                  probe_secs=120,
+                                  step_secs=20,
+                                  portrait_ratio=1.3,
+                                  vote_thresh=0.6) -> int:
+    """
+    Decide clockwise rotation (0 or 90 °) without metadata.
+    • probe_secs   : examine up to this many seconds from the start
+    • step_secs    : spacing between probe frames
+    • portrait_ratio: h/w must exceed this to count as 'portrait'
+    • vote_thresh  : proportion of portrait votes needed
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return 0
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    total = cap.get(cv2.CAP_PROP_FRAME_COUNT) or fps * probe_secs
+
+    # raster orientation
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if h > w:                    # pixels already portrait → no rotation
+        cap.release()
+        return 0
+
+    step = int(fps * step_secs)
+    max_frame = int(min(total, fps * probe_secs))
+
+    portrait_votes, checked = 0, 0
+
+    for f in range(0, max_frame, step):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, f)
+        ok, fr = cap.read()
+        if not ok:
+            break
+        boxes = yolo.detect_image(Image.fromarray(fr[..., ::-1]))
+        if not boxes:
+            continue
+        x1, y1, x2, y2 = boxes[0]          # first detection only
+        if (y2 - y1) > portrait_ratio * (x2 - x1):
+            portrait_votes += 1
+        checked += 1
+
+    cap.release()
+
+    print("max frame:", max_frame)
+    print("Checked number of frames:", checked)
+    print("portrait votes:", portrait_votes)
+
+    if checked and portrait_votes / checked >= vote_thresh:
+        return 90
+    return 90
+                                      # assume upright
+
+
+def rotate_frame(mat: np.ndarray, deg: int) -> np.ndarray:
+    if   deg == 90:
+        return cv2.rotate(mat, cv2.ROTATE_90_CLOCKWISE)
+    elif deg == 180:
+        return cv2.rotate(mat, cv2.ROTATE_180)
+    elif deg == 270:
+        return cv2.rotate(mat, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return mat
+
+
 
 def main(yolo, args):
+    rot_tag = auto_rotation_by_sparse_probe(args.videos[0], yolo)
+    print("Rotation tag detected:", rot_tag)
+
     tracking_results_file = "tracking_results.json"
 
     if os.path.exists(tracking_results_file):
         print("Tracking results already exist. Skipping tracking phase.")
     else:
-        tracking_phase(yolo, args)
+        tracking_phase(yolo, args, rot_tag)
 
-    reid_and_selection_phase(args)
+    reid_and_selection_phase(args, rot_tag)
 
 
 if __name__ == '__main__':
