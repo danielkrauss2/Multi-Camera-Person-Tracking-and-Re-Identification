@@ -247,8 +247,8 @@ def reid_and_selection_phase(args):
                 # ---------- person crop ----------
                 x1, y1, x2, y2 = e["bbox"]
                 h, w = frame.shape[:2]
-                x1, y1 = max(0, x1), max(0, y1)
-                x2, y2 = min(w - 1, x2), min(h - 1, y2)
+                x1, y1, x2, y2 = pad_box(x1, y1, x2, y2, 0.20, w, h)  # ← +20 %
+
                 if x2 <= x1 or y2 <= y1:
                     continue          # skip empty / invalid boxes
 
@@ -428,6 +428,18 @@ def get_color(idx):
     idx = idx * 3
     color = ((37 * idx) % 255, (17 * idx) % 255, (29 * idx) % 255)
     return color
+
+def pad_box(x1, y1, x2, y2, pad_ratio, img_w, img_h):
+    """Expand (x1,y1,x2,y2) by pad_ratio (e.g. 0.20 = +20 %) in both axes."""
+    w = x2 - x1
+    h = y2 - y1
+    px = int(w * pad_ratio / 2)
+    py = int(h * pad_ratio / 2)
+    x1 = max(0, x1 - px)
+    y1 = max(0, y1 - py)
+    x2 = min(img_w - 1, x2 + px)
+    y2 = min(img_h - 1, y2 + py)
+    return x1, y1, x2, y2
 
 
 
