@@ -548,7 +548,7 @@ def auto_rotation_by_sparse_probe(video_path: str,
 
     if checked and portrait_votes / checked >= vote_thresh:
         return 90
-    return 0
+    return 90
                                       # assume upright
 
 
