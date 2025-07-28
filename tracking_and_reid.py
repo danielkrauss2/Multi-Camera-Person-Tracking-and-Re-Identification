@@ -497,8 +497,8 @@ def resize_and_pad(img: np.ndarray,
 
 def auto_rotation_by_sparse_probe(video_path: str,
                                   yolo,
-                                  probe_secs=120,
-                                  step_secs=20,
+                                  probe_secs=5,
+                                  step_secs=0.5,
                                   portrait_ratio=1.3,
                                   vote_thresh=0.6) -> int:
     """
@@ -541,11 +541,6 @@ def auto_rotation_by_sparse_probe(video_path: str,
         checked += 1
 
     cap.release()
-
-    print("max frame:", max_frame)
-    print("Checked number of frames:", checked)
-    print("portrait votes:", portrait_votes)
-
     if checked and portrait_votes / checked >= vote_thresh:
         return 90
     return 0
