@@ -63,22 +63,9 @@ def extract_image_patch(image, bbox, patch_shape):
     if np.any(bbox[:2] >= bbox[2:]):
         return None
     sx, sy, ex, ey = bbox
-
-    patch = image[sy:ey, sx:ex]
-
-    # --- KEEP ASPECT RATIO ------------------------------------------
-    target_w, target_h = patch_shape[1], patch_shape[0]
-    ph, pw = patch.shape[:2]
-    scale = min(target_w / pw, target_h / ph)
-    new_w, new_h = int(pw * scale), int(ph * scale)
-
-    resized = cv2.resize(patch, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-    canvas = np.zeros((target_h, target_w, 3), dtype=patch.dtype)
-    x0 = (target_w - new_w) // 2
-    y0 = (target_h - new_h) // 2
-    canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
-    return canvas  # <── return letter-boxed patch
+    image = image[sy:ey, sx:ex]
+    image = cv2.resize(image, tuple(patch_shape[::-1]))
+    return image
 
 
 class ImageEncoder(object):
