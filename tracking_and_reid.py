@@ -68,22 +68,10 @@ def tracking_phase(yolo, args):
                 break
 
             if frame_counter % 10 == 0:
-
-                # ------------------------ YOLO inference ---------------------------------
-                image = Image.fromarray(frame[..., ::-1])  # BGR → RGB
-                boxs_tlbr = yolo.detect_image(image)  # ← (x1,y1,x2,y2)
-                # --- convert to (x, y, w, h) ----------------------------------------
-                boxs = []
-                for (x1, y1, x2, y2) in boxs_tlbr:
-                    boxs.append([x1,
-                                 y1,
-                                 max(1, x2 - x1),  # width  ≥ 1
-                                 max(1, y2 - y1)])  # height ≥ 1
-                # -------------------------------------------------------------------------
+                image = Image.fromarray(frame[..., ::-1])  # Convert BGR to RGB
+                boxs = yolo.detect_image(image)
                 features = encoder(frame, boxs)
-                detections = [Detection(bbox, 1.0, feat)
-                              for bbox, feat in zip(boxs, features)]
-
+                detections = [Detection(bbox, 1.0, feature) for bbox, feature in zip(boxs, features)]
                 boxes = np.array([d.tlwh for d in detections])
                 scores = np.array([d.confidence for d in detections])
                 indices = preprocessing.delete_overlap_box(boxes, nms_max_overlap, scores)
