@@ -20,7 +20,7 @@ from yolo_v3 import YOLO3
 from yolo_v4 import YOLO4
 from collections import defaultdict
 import random, itertools
-import math, subprocess, shlex, re               # add subprocess, shlex if missing
+import math, subprocess, shlex               # add subprocess, shlex if missing
 
 
 class LoadVideo:
@@ -497,11 +497,9 @@ def resize_and_pad(img: np.ndarray,
 
 def get_rotation_tag(video_path: str) -> int:
     """
-    Return clockwise rotation (0/90/180/270) needed to display the file
-    upright.  Works for both smartphone `rotate=` tags and GoPro / DJI
-    display-matrix side-data.  Requires ffprobe in PATH.
+    Return rotation in degrees from metadata if present (smartphones) else 0.
+    Requires ffprobe/ffmpeg; if not available just skip and return 0.
     """
-    # 1) classic rotate tag -------------------------------------------------
     cmd = ('ffprobe -v error -select_streams v:0 '
            '-show_entries stream_tags=rotate '
            '-of default=nokey=1:noprint_wrappers=1 '
@@ -510,36 +508,9 @@ def get_rotation_tag(video_path: str) -> int:
         out = subprocess.check_output(shlex.split(cmd),
                                       stderr=subprocess.DEVNULL,
                                       text=True).strip()
-        if out:
-            return int(out) % 360
+        return int(out) if out else 0
     except Exception:
-        pass
-
-    # 2) GoPro / DJI displaymatrix side-data --------------------------------
-    cmd = ('ffprobe -v error -select_streams v:0 '
-           '-show_entries stream_side_data '
-           '-of json '                 # easier to parse
-           f'"{video_path}"')
-    try:
-        raw = subprocess.check_output(shlex.split(cmd),
-                                      stderr=subprocess.DEVNULL,
-                                      text=True)
-        data = json.loads(raw)
-        side = data["streams"][0].get("side_data_list", [])
-        for entry in side:
-            if entry.get("side_data_type") == "Display Matrix":
-                txt = entry.get("displaymatrix", "")
-                # ffprobe prints "... rotation of -90.00 degrees"
-                m = re.search(r'rotation of ([\-0-9\.]+)', txt)
-                if m:
-                    rot = -float(m.group(1))          # note the sign
-                    rot = int((rot + 360) % 360)      # to 0/90/180/270
-                    return rot
-    except Exception:
-        pass
-
-    return 0                                          # assume upright
-
+        return 0
 
 
 def detect_rotation(video_path: str) -> int:
