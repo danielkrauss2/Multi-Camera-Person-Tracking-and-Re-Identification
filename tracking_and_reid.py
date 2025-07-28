@@ -525,8 +525,6 @@ def detect_rotation(video_path: str) -> int:
     cap = cv2.VideoCapture(video_path)
     ok, fr = cap.read()
     cap.release()
-    print("Shape for rotation tag", fr.shape[0], fr.shape[1])
-
     if ok and fr.shape[0] > fr.shape[1]:      # portrait stored sideways
         return 90
     return 0
@@ -545,7 +543,7 @@ def rotate_frame(mat: np.ndarray, deg: int) -> np.ndarray:
 
 def main(yolo, args):
     rot_tag = detect_rotation(args.videos[0])
-    print("Rotation tag detected:", rot_tag)
+
 
     tracking_results_file = "tracking_results.json"
 
