@@ -20,7 +20,6 @@ from yolo_v3 import YOLO3
 from yolo_v4 import YOLO4
 from collections import defaultdict
 import random, itertools
-import math            # ← add once at the top of the file with other imports
 
 
 class LoadVideo:
@@ -68,28 +67,18 @@ def tracking_phase(yolo, args):
             if not ret:
                 break
 
-            MIN_WH = 4  # skip boxes thinner / shorter than this many pixels
-
             if frame_counter % 10 == 0:
 
                 # ------------------------ YOLO inference ---------------------------------
                 image = Image.fromarray(frame[..., ::-1])  # BGR → RGB
-                tlbr_boxes = yolo.detect_image(image)  # ← (x1,y1,x2,y2)
+                boxs_tlbr = yolo.detect_image(image)  # ← (x1,y1,x2,y2)
                 # --- convert to (x, y, w, h) ----------------------------------------
                 boxs = []
-                for (x1, y1, x2, y2) in tlbr_boxes:
-                    w = max(1, math.ceil(x2 - x1))
-                    h = max(1, math.ceil(y2 - y1))
-                    if w < MIN_WH or h < MIN_WH:  # too skinny → ignore
-                        continue
-                    boxs.append([int(round(x1)), int(round(y1)), w, h])
-
-                if not boxs:  # nothing useful this frame
-                    bbox_cache = []
-                    tracker.predict()
-                    tracker.update([])
-                    frame_counter += 1
-                    continue
+                for (x1, y1, x2, y2) in boxs_tlbr:
+                    boxs.append([x1,
+                                 y1,
+                                 max(1, x2 - x1),  # width  ≥ 1
+                                 max(1, y2 - y1)])  # height ≥ 1
                 # -------------------------------------------------------------------------
                 features = encoder(frame, boxs)
                 detections = [Detection(bbox, 1.0, feat)
