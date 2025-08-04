@@ -362,58 +362,46 @@ def reid_and_selection_phase(args):
 
     print("Temporary crops & tracking_results.json removed.")
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Misc helper functions
-# ────────────────────────────────────────────────────────────────────────────────
-
-def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, codec='MJPG'):
-    complete_path = os.path.join(out_dir, filename + "_" + str(segment_index) + ".avi")
-    fourcc = cv2.VideoWriter_fourcc(*codec)
-    out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
-    return out, complete_path
-
-    tracker = Tracker(metric, max_age=300)
 
 def show_id_samples(track_id: int,
-                    boxes: list,            # [[frame,x1,y1,x2,y2,area], …]
+                    boxes: list,              # [[frame,x1,y1,x2,y2,area], …]
                     temp_dir: str = "temp_crops",
                     min_crops: int = 10) -> bool:
     """
-    Return True if the user says 'y', False otherwise.
-    Shows first / middle / last crops in a single window.
+    Show first / middle / last snapshots in one window.
+    Return True iff the user answers 'y'.
     """
+
     if len(boxes) < min_crops:
         print(f"[UI] ID {track_id} skipped ({len(boxes)} < {min_crops} crops)")
         return False
 
-    # chronological order
-    boxes.sort(key=lambda x: x[0])
-    reps = [boxes[0], boxes[len(boxes)//2], boxes[-1]]  # F / M / L
+    boxes.sort(key=lambda b: b[0])
+    reps = [boxes[0], boxes[len(boxes)//2], boxes[-1]]   # first/mid/last
 
-    crops = []
-    for k, (f_idx, x1, y1, x2, y2, *_unused) in enumerate(reps, start=1):
-        img_path = os.path.join(temp_dir, f"frame_{f_idx}.jpg")
-        fr = cv2.imread(img_path)
+    thumbs = []
+    for k, (f_idx, x1, y1, x2, y2, *_a) in enumerate(reps, start=1):
+        fr = cv2.imread(os.path.join(temp_dir, f"frame_{f_idx}.jpg"))
         if fr is None:
             continue
         cv2.rectangle(fr, (x1, y1), (x2, y2), (0, 255, 0), 2)
         cv2.putText(fr, f"{k}/3", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        crops.append(fr)
+        thumbs.append(fr)
 
-    if not crops:          # should never happen
+    if not thumbs:
         return False
 
-    composite = np.hstack(crops)
-    cv2.imshow(f"Candidate ID {track_id}", composite)
-    cv2.waitKey(1)
-    cv2.destroyAllWindows()
+    composite = np.hstack(thumbs)                 # single side-by-side image
+    cv2.namedWindow(f"ID {track_id}", cv2.WINDOW_NORMAL)
+    cv2.imshow(f"ID {track_id}", composite)
+    cv2.waitKey(1)                                # just let it paint once
 
-    while True:
-        ans = input(f"Track ID {track_id}: keep? (y/n) ").lower().strip()
-        if ans in ("y", "n"):
-            return ans == "y"
-        print("Please answer with 'y' or 'n'.")
+    # ── now ask in terminal while window stays visible ────────────────
+    keep = input(f"Track ID {track_id}: keep? (y/n) ").strip().lower() == 'y'
+
+    cv2.destroyAllWindows()                       # close after answer
+    return keep
 
 
 def get_FrameLabels(frame):
