@@ -382,8 +382,6 @@ def show_id_samples(track_id: int,
     Return True if the user says 'y', False otherwise.
     Shows first / middle / last crops in a single window.
     """
-    import os, cv2, numpy as np
-
     if len(boxes) < min_crops:
         print(f"[UI] ID {track_id} skipped ({len(boxes)} < {min_crops} crops)")
         return False
@@ -408,7 +406,7 @@ def show_id_samples(track_id: int,
 
     composite = np.hstack(crops)
     cv2.imshow(f"Candidate ID {track_id}", composite)
-    cv2.waitKey(0)
+    cv2.waitKey(1)
     cv2.destroyAllWindows()
 
     while True:
