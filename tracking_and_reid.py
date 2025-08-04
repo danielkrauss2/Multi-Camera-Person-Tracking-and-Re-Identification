@@ -311,24 +311,13 @@ def reid_and_selection_phase(args):
     # merge bookkeeping dicts so that only root IDs remain
     merge_clusters_into_dicts(clusters, images_by_id, track_cnt)
 
-    # ── User selection phase ───────────────────────────────────────
     selected_ids = set()
 
-    MIN_CROPS = 10
-
     for root_id in clusters.keys():
-        if len(images_by_id[root_id]) < MIN_CROPS:  # ← skip small tracks
-            print(f"[UI] ID {root_id} skipped "
-                  f"({len(images_by_id[root_id])} crops < {MIN_CROPS})")
-            continue
-            
-        first_frame_idx = min(frames_by_id[root_id])
-        frame_path = images_by_id[root_id][0]["frame_path"]
-        frame      = cv2.imread(frame_path)
-        chosen = display_and_select_ids(frame,
-                                        {root_id: track_cnt[root_id]},
-                                        first_frame_idx)
-        selected_ids.update(chosen)
+        # --- NEW -----------------------------------------------------------
+        if show_id_samples(root_id, track_cnt[root_id]):
+            selected_ids.add(root_id)
+        # -------------------------------------------------------------------
 
     # ── Generate output video with masked IDs  ──────────────────────
     print("Generating output video for selected IDs...")
@@ -383,33 +372,51 @@ def create_video_writer(out_dir, segment_index, filename, frame_rate, w, h, code
     out = cv2.VideoWriter(complete_path, fourcc, frame_rate, (w, h))
     return out, complete_path
 
-def display_and_select_ids(frame, final_fuse_id, current_frame):
-    displayed_frame = frame.copy()
-    for idx, bboxes in final_fuse_id.items():
-        for bbox in bboxes:
-            if bbox[0] == current_frame:  # Show only the bounding box for the current frame
-                x1, y1, x2, y2 = bbox[1:]
-                cv2.rectangle(displayed_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(displayed_frame, f"ID: {idx}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    tracker = Tracker(metric, max_age=300)
 
-    instructions = "Detected new person IDs. Enter 'y' to track or 'n' to ignore each ID."
-    cv2.putText(displayed_frame, instructions, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-    cv2.imshow("New Person Detected", displayed_frame)
-    cv2.waitKey(1)
+def show_id_samples(track_id: int,
+                    boxes: list,            # [[frame,x1,y1,x2,y2,area], …]
+                    temp_dir: str = "temp_crops",
+                    min_crops: int = 10) -> bool:
+    """
+    Return True if the user says 'y', False otherwise.
+    Shows first / middle / last crops in a single window.
+    """
+    import os, cv2, numpy as np
 
-    selected_ids = set()
-    for idx in final_fuse_id.keys():
-        while True:
-            user_input = input(f"Do you want to track person with ID {idx}? (y/n): ")
-            if user_input.lower() in ['y', 'n']:
-                if user_input.lower() == 'y':
-                    selected_ids.add(idx)
-                break
-            else:
-                print("Invalid input. Please enter 'y' or 'n'.")
+    if len(boxes) < min_crops:
+        print(f"[UI] ID {track_id} skipped ({len(boxes)} < {min_crops} crops)")
+        return False
 
+    # chronological order
+    boxes.sort(key=lambda x: x[0])
+    reps = [boxes[0], boxes[len(boxes)//2], boxes[-1]]  # F / M / L
+
+    crops = []
+    for k, (f_idx, x1, y1, x2, y2, *_unused) in enumerate(reps, start=1):
+        img_path = os.path.join(temp_dir, f"frame_{f_idx}.jpg")
+        fr = cv2.imread(img_path)
+        if fr is None:
+            continue
+        cv2.rectangle(fr, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(fr, f"{k}/3", (10, 25),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        crops.append(fr)
+
+    if not crops:          # should never happen
+        return False
+
+    composite = np.hstack(crops)
+    cv2.imshow(f"Candidate ID {track_id}", composite)
+    cv2.waitKey(0)
     cv2.destroyAllWindows()
-    return selected_ids
+
+    while True:
+        ans = input(f"Track ID {track_id}: keep? (y/n) ").lower().strip()
+        if ans in ("y", "n"):
+            return ans == "y"
+        print("Please answer with 'y' or 'n'.")
+
 
 def get_FrameLabels(frame):
     text_scale = max(1, frame.shape[1] / 1600.)
