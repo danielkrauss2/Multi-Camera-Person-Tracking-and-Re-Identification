@@ -366,7 +366,8 @@ def reid_and_selection_phase(args):
 def show_id_samples(track_id: int,
                     boxes: list,              # [[frame,x1,y1,x2,y2,area], …]
                     temp_dir: str = "temp_crops",
-                    min_crops: int = 10) -> bool:
+                    min_crops: int = 10,
+                    target_height: int = 720) -> bool:
     """
     Show first / middle / last snapshots in one window.
     Return True iff the user answers 'y'.
@@ -392,10 +393,23 @@ def show_id_samples(track_id: int,
     if not thumbs:
         return False
 
-    composite = np.hstack(thumbs)                 # single side-by-side image
-    cv2.namedWindow(f"ID {track_id}", cv2.WINDOW_NORMAL)
+    # ── stitch side-by-side ────────────────────────────────────────────
+    composite = np.hstack(thumbs)
+
+    # ── upscale so height ≈ target_height px (keep aspect ratio) ──────
+    h, w = composite.shape[:2]
+    if h < target_height:
+        scale = target_height / h
+        composite = cv2.resize(composite,
+                               (int(w * scale), target_height),
+                               interpolation=cv2.INTER_LINEAR)
+
+    win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
+    cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
+    cv2.imshow(win, composite)
+
     cv2.imshow(f"ID {track_id}", composite)
-    cv2.waitKey(1)                                # just let it paint once
+    cv2.waitKey(10)                                # just let it paint once
 
     # ── now ask in terminal while window stays visible ────────────────
     keep = input(f"Track ID {track_id}: keep? (y/n) ").strip().lower() == 'y'
