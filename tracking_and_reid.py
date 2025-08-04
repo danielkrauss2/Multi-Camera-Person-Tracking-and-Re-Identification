@@ -313,7 +313,15 @@ def reid_and_selection_phase(args):
 
     # ── User selection phase ───────────────────────────────────────
     selected_ids = set()
+
+    MIN_CROPS = 10
+
     for root_id in clusters.keys():
+        if len(images_by_id[root_id]) < MIN_CROPS:  # ← skip small tracks
+            print(f"[UI] ID {root_id} skipped "
+                  f"({len(images_by_id[root_id])} crops < {MIN_CROPS})")
+            continue
+            
         first_frame_idx = min(frames_by_id[root_id])
         frame_path = images_by_id[root_id][0]["frame_path"]
         frame      = cv2.imread(frame_path)
