@@ -49,7 +49,7 @@ def tracking_phase(yolo, args):
     model_filename = 'model_data/models/mars-small128.pb'
     encoder = gdet.create_box_encoder(model_filename, batch_size=1)
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
-    tracker = Tracker(metric, max_age=25)
+    tracker = Tracker(metric, max_age=25, n_init=5)
 
     temp_dir = 'temp_crops'
     os.makedirs(temp_dir, exist_ok=True)
@@ -130,6 +130,25 @@ def tracking_phase(yolo, args):
             print(f"Processed frame {frame_counter} of video {video}")
 
         video_capture.release()
+
+    # ── drop tracks with < MIN_CROPS detections ──────────────────────────
+    MIN_CROPS_TRACK = 10
+    valid_ids = {tid for tid, lst in track_cnt.items() if len(lst) >= MIN_CROPS_TRACK}
+
+    tracking_results = [
+        res for res in tracking_results
+        if res["track_id"] in valid_ids
+    ]
+    print(f"[Filter] kept {len(valid_ids)} tracks, "
+          f"removed {len(track_cnt) - len(valid_ids)} short ones")
+
+
+    # optional: delete temp_crops that are no longer referenced
+    used_frames = {res["frame_path"] for res in tracking_results}
+    for fname in os.listdir(temp_dir):
+        fpath = os.path.join(temp_dir, fname)
+        if fpath not in used_frames:
+            os.remove(fpath)
 
     # Save tracking results to file
     with open("tracking_results.json", "w") as f:
