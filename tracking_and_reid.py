@@ -42,6 +42,7 @@ class LoadVideo:
 
 def tracking_phase(yolo, args):
     print("Starting Tracking Phase...")
+    DET_HZ = 3                               # run YOLO ≈3× per real-second
     max_cosine_distance = 0.3
     nn_budget = 75
     nms_max_overlap = 0.4
@@ -59,6 +60,8 @@ def tracking_phase(yolo, args):
     for video in args.videos:
         loadvideo = LoadVideo(video)
         video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
+        DET_INTERVAL = max(1, round(frame_rate / DET_HZ))  # NEW
+
         frame_counter = 0
         bbox_cache = []
 
@@ -67,7 +70,8 @@ def tracking_phase(yolo, args):
             if not ret:
                 break
 
-            if frame_counter % 5 == 0:
+            if frame_counter % DET_INTERVAL == 0:
+
                 image = Image.fromarray(frame[..., ::-1])  # Convert BGR to RGB
                 boxs = yolo.detect_image(image)
                 features = encoder(frame, boxs)
@@ -253,8 +257,8 @@ def reid_and_selection_phase(args):
                     continue          # skip empty / invalid boxes
 
                 crop = frame[y1:y2, x1:x2]               # BGR crop
-                crop = cv2.resize(crop, (128, 256),      # many Re-ID nets expect 128×256
-                                  interpolation=cv2.INTER_LINEAR)
+                crop = resize_and_pad(crop, (128, 256))  # keeps aspect ratio
+
                 crops.append(crop)
                 # -----------------------------------
 
@@ -462,6 +466,27 @@ def pad_box(x1, y1, x2, y2, pad_ratio, img_w, img_h):
     x2 = min(img_w - 1, x2 + px)
     y2 = min(img_h - 1, y2 + py)
     return x1, y1, x2, y2
+
+def resize_and_pad(img: np.ndarray,
+                   target: tuple[int, int] = (128, 256)) -> np.ndarray:
+    """
+    Resize `img` to fit inside `target` (width, height) while preserving
+    aspect ratio, then center-pad with black pixels so the result is
+    exactly `target` size.
+    """
+    tgt_w, tgt_h = target
+    h, w = img.shape[:2]
+
+    scale = min(tgt_w / w, tgt_h / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    canvas = np.zeros((tgt_h, tgt_w, 3), dtype=img.dtype)
+    x0 = (tgt_w - new_w) // 2
+    y0 = (tgt_h - new_h) // 2
+    canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
+    return canvas
 
 
 
