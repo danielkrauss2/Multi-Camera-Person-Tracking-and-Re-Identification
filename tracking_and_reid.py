@@ -49,7 +49,6 @@ def tracking_phase(yolo, args):
     model_filename = 'model_data/models/mars-small128.pb'
     encoder = gdet.create_box_encoder(model_filename, batch_size=1)
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
-    tracker = Tracker(metric, max_age=25, n_init=5)
 
     temp_dir = 'temp_crops'
     os.makedirs(temp_dir, exist_ok=True)
@@ -61,6 +60,11 @@ def tracking_phase(yolo, args):
         loadvideo = LoadVideo(video)
         video_capture, frame_rate, w, h = loadvideo.get_VideoLabels()
         DET_INTERVAL = max(1, round(frame_rate / DET_HZ))  # NEW
+
+        MAX_GAP_S = 5  # 5-second tolerance
+        max_age = int(MAX_GAP_S * frame_rate)  # fps-scaled
+
+        tracker = Tracker(metric, max_age=max_age, n_init=5)
 
         frame_counter = 0
         bbox_cache = []
@@ -368,10 +372,20 @@ def reid_and_selection_phase(args):
             break
 
         mask = np.zeros_like(frame)
+
         for tid in selected_ids:
             for bbox in track_cnt.get(tid, []):
                 if bbox[0] == frame_counter:
                     _, x1, y1, x2, y2 = bbox
+
+                    h, w = frame.shape[:2]
+
+                    # --- NEW: enlarge box by +15 % on all sides ---------------
+                    x1, y1, x2, y2 = pad_box(x1, y1, x2, y2,
+                                             pad_ratio=0.30,  # tune 0.10-0.25
+                                             img_w=w, img_h=h)
+                    # ----------------------------------------------------------
+
                     mask[y1:y2, x1:x2] = frame[y1:y2, x1:x2]
 
         out.write(mask)
