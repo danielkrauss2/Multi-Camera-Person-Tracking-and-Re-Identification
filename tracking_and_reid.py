@@ -367,7 +367,7 @@ def show_id_samples(track_id: int,
                     boxes: list,              # [[frame,x1,y1,x2,y2,area], …]
                     temp_dir: str = "temp_crops",
                     min_crops: int = 10,
-                    target_height: int = 720) -> bool:
+                    target_height: int = 300) -> bool:
     """
     Show first / middle / last snapshots in one window.
     Return True iff the user answers 'y'.
