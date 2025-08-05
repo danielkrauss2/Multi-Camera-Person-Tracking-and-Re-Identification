@@ -42,7 +42,7 @@ class LoadVideo:
 
 def tracking_phase(yolo, args):
     print("Starting Tracking Phase...")
-    DET_HZ = 3                               # run YOLO ≈3× per real-second
+    DET_HZ = 1                               # run YOLO ≈1× per real-second
     max_cosine_distance = 0.3
     nn_budget = 75
     nms_max_overlap = 0.4
