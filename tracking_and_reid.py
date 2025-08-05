@@ -43,12 +43,12 @@ class LoadVideo:
 def tracking_phase(yolo, args):
     print("Starting Tracking Phase...")
     max_cosine_distance = 0.3
-    nn_budget = None
+    nn_budget = 75
     nms_max_overlap = 0.4
     model_filename = 'model_data/models/mars-small128.pb'
     encoder = gdet.create_box_encoder(model_filename, batch_size=1)
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
-    tracker = Tracker(metric, max_age=300)
+    tracker = Tracker(metric, max_age=25)
 
     temp_dir = 'temp_crops'
     os.makedirs(temp_dir, exist_ok=True)
@@ -67,7 +67,7 @@ def tracking_phase(yolo, args):
             if not ret:
                 break
 
-            if frame_counter % 10 == 0:
+            if frame_counter % 5 == 0:
                 image = Image.fromarray(frame[..., ::-1])  # Convert BGR to RGB
                 boxs = yolo.detect_image(image)
                 features = encoder(frame, boxs)
@@ -268,7 +268,14 @@ def reid_and_selection_phase(args):
         if not all_feats:
             continue
 
-        all_feats = np.vstack(all_feats)   # shape: (N_frames, feat_dim)
+        all_feats = np.vstack(all_feats)  # shape (N, feat_dim)
+
+        # ── NEW: cap the array to a maximum per track ────────────────────────
+        MAX_FEATS = 500  # keep at most 500 vectors
+        if len(all_feats) > MAX_FEATS:
+            step = len(all_feats) // MAX_FEATS  # ≈ uniform subsampling
+            all_feats = all_feats[::step]
+
         feats[tid] = all_feats
 
     # build ℓ2-normalised representative vector
