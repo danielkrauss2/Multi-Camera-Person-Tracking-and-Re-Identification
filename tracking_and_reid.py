@@ -430,7 +430,7 @@ def show_id_samples(track_id: int,
         if fr is None:
             continue
         cv2.rectangle(fr, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(fr, f"{k}/3", (10, 25),
+        cv2.putText(fr, f"{k}/3  |  total frames: {len(boxes)}", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         thumbs.append(fr)
 
