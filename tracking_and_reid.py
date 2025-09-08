@@ -349,7 +349,7 @@ def reid_and_selection_phase(args):
 
     for root_id in clusters.keys():
         # --- NEW -----------------------------------------------------------
-        if show_id_samples(root_id, track_cnt[root_id]):
+        if show_id_samples(root_id, track_cnt[root_id], min_crops=100):
             selected_ids.add(root_id)
         # -------------------------------------------------------------------
 
@@ -539,7 +539,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--version', help='Model(yolo_v3 or yolo_v4)', default='yolo_v4')
     parser.add_argument('--videos', nargs='+', help='List of videos', required=True)
-    parser.add_argument('--reid_thresh', type=float, default=0.10,
+    parser.add_argument('--reid_thresh', type=float, default=0.05,
                         help='Cosine-distance threshold for ReID fusion '
                              '(lower keeps IDs separate)')
 
