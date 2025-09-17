@@ -408,74 +408,79 @@ def reid_and_selection_phase(args):
 
 
 def show_id_samples(track_id: int,
-                    boxes: list,              # [[frame,x1,y1,x2,y2,area], …]
+                    boxes: list,
                     temp_dir: str = "temp_crops",
                     min_crops: int = 10,
-                    target_height: int = 800,   # ← bigger default
-                    max_width: int = 2200) -> bool:
+                    target_height: int = 800) -> bool:
     """
-    Show first / middle / last snapshots side-by-side in one window.
-    Return True iff the user answers 'y'.
+    Show first / middle / last snapshots in a Tk window (X11-friendly).
+    Returns True iff user confirms keep (y / button).
     """
-
     if len(boxes) < min_crops:
         print(f"[UI] ID {track_id} skipped ({len(boxes)} < {min_crops} crops)")
         return False
 
-    boxes.sort(key=lambda b: b[0])
-    reps = [boxes[0], boxes[len(boxes)//2], boxes[-1]]   # first/mid/last
+    import os, cv2, numpy as np
+    from PIL import Image, ImageTk
+    import tkinter as tk
 
-    thumbs = []
+    boxes.sort(key=lambda b: b[0])
+    reps = [boxes[0], boxes[len(boxes)//2], boxes[-1]]
+
+    imgs = []
     for k, (f_idx, x1, y1, x2, y2, *_a) in enumerate(reps, start=1):
-        fr = cv2.imread(os.path.join(temp_dir, f"frame_{f_idx}.jpg"))
+        fr = cv2.imread(os.path.join(temp_dir, f"frame_%d.jpg" % f_idx))
         if fr is None:
             continue
-        cv2.rectangle(fr, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(fr, (x1, y1), (x2, y2), (0,255,0), 2)
         cv2.putText(fr, f"{k}/3  |  total frames: {len(boxes)}", (10, 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        thumbs.append(fr)
-
-    if not thumbs:
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
+        imgs.append(cv2.cvtColor(fr, cv2.COLOR_BGR2RGB))
+    if not imgs:
         return False
 
-    # stitch side-by-side
-    composite = np.hstack(thumbs)
-
-    # upscale so height ≈ target_height px (keep aspect)
+    composite = np.hstack(imgs)
     h, w = composite.shape[:2]
     if h < target_height:
         scale = target_height / h
-        composite = cv2.resize(composite, (int(w * scale), target_height),
+        composite = cv2.resize(composite, (int(w*scale), target_height),
                                interpolation=cv2.INTER_LINEAR)
 
-    # optional clamp for ultra-wide screens (prevents X11 oddities)
-    h, w = composite.shape[:2]
-    if w > max_width:
-        scale = max_width / w
-        composite = cv2.resize(composite, (max_width, int(h * scale)),
-                               interpolation=cv2.INTER_AREA)
+    im = Image.fromarray(composite)
 
-    win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
+    # --- Tk UI ---
+    root = tk.Tk()
+    root.title(f"ID {track_id} – Keep this person?")
+    keep_result = {"val": False}
 
-    # WINDOW_KEEPRATIO keeps aspect on manual resize if available
-    try:
-        flags = cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO
-    except AttributeError:
-        flags = cv2.WINDOW_NORMAL
+    def on_keep():
+        keep_result["val"] = True
+        root.destroy()
+    def on_skip():
+        keep_result["val"] = False
+        root.destroy()
+    def on_key(evt):
+        if evt.keysym.lower() in ("y", "return"):
+            on_keep()
+        elif evt.keysym.lower() in ("n", "escape"):
+            on_skip()
 
-    cv2.namedWindow(win, flags)
-    cv2.imshow(win, composite)
+    root.bind("<Key>", on_key)
 
-    # make sure it appears at intended size
-    H, W = composite.shape[:2]
-    cv2.resizeWindow(win, max(640, W), max(360, H))
+    canvas = tk.Canvas(root, width=im.width, height=im.height, highlightthickness=0)
+    canvas.pack()
+    tkimg = ImageTk.PhotoImage(im)
+    canvas.create_image(0, 0, anchor="nw", image=tkimg)
 
-    # let X11 paint
-    cv2.waitKey(10)
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(fill="x")
+    tk.Button(btn_frame, text="Keep (y)", command=on_keep).pack(side="left", padx=8, pady=6)
+    tk.Button(btn_frame, text="Skip (n)", command=on_skip).pack(side="left", padx=8, pady=6)
 
-    keep = input(f"Track ID {track_id}: keep? (y/n) ").strip().lower() == 'y'
-    cv2.destroyWindow(win)
-    return keep
+    # size/position
+    root.geometry(f"{im.width}x{im.height+60}+80+80")
+    root.mainloop()
+    return keep_result["val"]
 
 
 def get_FrameLabels(frame):
