@@ -349,7 +349,7 @@ def reid_and_selection_phase(args):
 
     for root_id in clusters.keys():
         # --- NEW -----------------------------------------------------------
-        if show_id_samples(root_id, track_cnt[root_id], min_crops=100):
+        if show_id_samples(root_id, track_cnt[root_id], min_crops=100, target_height=800):
             selected_ids.add(root_id)
         # -------------------------------------------------------------------
 
@@ -411,9 +411,10 @@ def show_id_samples(track_id: int,
                     boxes: list,              # [[frame,x1,y1,x2,y2,area], …]
                     temp_dir: str = "temp_crops",
                     min_crops: int = 10,
-                    target_height: int = 300) -> bool:
+                    target_height: int = 800,   # ← bigger default
+                    max_width: int = 2200) -> bool:
     """
-    Show first / middle / last snapshots in one window.
+    Show first / middle / last snapshots side-by-side in one window.
     Return True iff the user answers 'y'.
     """
 
@@ -437,28 +438,43 @@ def show_id_samples(track_id: int,
     if not thumbs:
         return False
 
-    # ── stitch side-by-side ────────────────────────────────────────────
+    # stitch side-by-side
     composite = np.hstack(thumbs)
 
-    # ── upscale so height ≈ target_height px (keep aspect ratio) ──────
+    # upscale so height ≈ target_height px (keep aspect)
     h, w = composite.shape[:2]
     if h < target_height:
         scale = target_height / h
-        composite = cv2.resize(composite,
-                               (int(w * scale), target_height),
+        composite = cv2.resize(composite, (int(w * scale), target_height),
                                interpolation=cv2.INTER_LINEAR)
 
+    # optional clamp for ultra-wide screens (prevents X11 oddities)
+    h, w = composite.shape[:2]
+    if w > max_width:
+        scale = max_width / w
+        composite = cv2.resize(composite, (max_width, int(h * scale)),
+                               interpolation=cv2.INTER_AREA)
+
     win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
+
+    # WINDOW_KEEPRATIO keeps aspect on manual resize if available
+    try:
+        flags = cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO
+    except AttributeError:
+        flags = cv2.WINDOW_NORMAL
+
+    cv2.namedWindow(win, flags)
     cv2.imshow(win, composite)
 
-    cv2.imshow(f"ID {track_id}", composite)
-    cv2.waitKey(10)                                # just let it paint once
+    # make sure it appears at intended size
+    H, W = composite.shape[:2]
+    cv2.resizeWindow(win, max(640, W), max(360, H))
 
-    # ── now ask in terminal while window stays visible ────────────────
+    # let X11 paint
+    cv2.waitKey(10)
+
     keep = input(f"Track ID {track_id}: keep? (y/n) ").strip().lower() == 'y'
-
-    cv2.destroyAllWindows()                       # close after answer
+    cv2.destroyWindow(win)
     return keep
 
 
