@@ -2,14 +2,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations      # ← add this line right at the top
 
-import os
 import json
 import argparse
 import warnings
 from pathlib import Path
 import cv2
 import numpy as np
-from PIL import Image
 from deep_sort import preprocessing
 from deep_sort import nn_matching
 from deep_sort.detection import Detection
@@ -20,7 +18,10 @@ from yolo_v3 import YOLO3
 from yolo_v4 import YOLO4
 from collections import defaultdict
 import random, itertools
-
+import os, sys, threading
+import cv2, numpy as np
+from PIL import Image, ImageTk
+import tkinter as tk
 
 class LoadVideo:
     def __init__(self, path, img_size=(1088, 608)):
@@ -408,28 +409,28 @@ def reid_and_selection_phase(args):
 
 
 def show_id_samples(track_id: int,
-                    boxes: list,
+                    boxes: list,              # [[frame,x1,y1,x2,y2,area], …]
                     temp_dir: str = "temp_crops",
                     min_crops: int = 10,
-                    target_height: int = 800) -> bool:
+                    target_height: int = 600,   # ← smaller default
+                    scale: float | None = None  # optional final downscale (e.g., 0.7)
+                    ) -> bool:
     """
-    Show first / middle / last snapshots in a Tk window (X11-friendly).
-    Returns True iff user confirms keep (y / button).
+    Tk viewer (X11-friendly) without buttons.
+    Confirm in the console with 'y' or 'n' (press Enter),
+    or press y/n in the window. Returns True iff 'keep'.
     """
     if len(boxes) < min_crops:
         print(f"[UI] ID {track_id} skipped ({len(boxes)} < {min_crops} crops)")
         return False
 
-    import os, cv2, numpy as np
-    from PIL import Image, ImageTk
-    import tkinter as tk
-
+    # --- prepare three reps ---
     boxes.sort(key=lambda b: b[0])
     reps = [boxes[0], boxes[len(boxes)//2], boxes[-1]]
 
     imgs = []
     for k, (f_idx, x1, y1, x2, y2, *_a) in enumerate(reps, start=1):
-        fr = cv2.imread(os.path.join(temp_dir, f"frame_%d.jpg" % f_idx))
+        fr = cv2.imread(os.path.join(temp_dir, f"frame_{f_idx}.jpg"))
         if fr is None:
             continue
         cv2.rectangle(fr, (x1, y1), (x2, y2), (0,255,0), 2)
@@ -440,45 +441,68 @@ def show_id_samples(track_id: int,
         return False
 
     composite = np.hstack(imgs)
+
+    # --- size controls ---
     h, w = composite.shape[:2]
-    if h < target_height:
-        scale = target_height / h
-        composite = cv2.resize(composite, (int(w*scale), target_height),
-                               interpolation=cv2.INTER_LINEAR)
+    if target_height and h > target_height:
+        s = target_height / h
+        composite = cv2.resize(composite, (int(w*s), target_height), interpolation=cv2.INTER_AREA)
+    if scale is not None and 0 < scale < 1.0:
+        h, w = composite.shape[:2]
+        composite = cv2.resize(composite, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_AREA)
 
     im = Image.fromarray(composite)
 
-    # --- Tk UI ---
+    # --- Tk window (no buttons) ---
     root = tk.Tk()
-    root.title(f"ID {track_id} – Keep this person?")
-    keep_result = {"val": False}
+    root.title(f"ID {track_id} — Keep this person? (y/n)")
 
-    def on_keep():
-        keep_result["val"] = True
-        root.destroy()
-    def on_skip():
-        keep_result["val"] = False
-        root.destroy()
+    keep_result = {"val": False}
+    decided = {"done": False}
+
+    def decide(val: bool):
+        if not decided["done"]:
+            decided["done"] = True
+            keep_result["val"] = val
+            root.destroy()
+
     def on_key(evt):
-        if evt.keysym.lower() in ("y", "return"):
-            on_keep()
-        elif evt.keysym.lower() in ("n", "escape"):
-            on_skip()
+        k = evt.keysym.lower()
+        if k in ("y", "return"):
+            decide(True)
+        elif k in ("n", "escape"):
+            decide(False)
 
     root.bind("<Key>", on_key)
 
     canvas = tk.Canvas(root, width=im.width, height=im.height, highlightthickness=0)
     canvas.pack()
     tkimg = ImageTk.PhotoImage(im)
+    # keep a reference to avoid GC
+    canvas.image = tkimg
     canvas.create_image(0, 0, anchor="nw", image=tkimg)
 
-    btn_frame = tk.Frame(root)
-    btn_frame.pack(fill="x")
-    tk.Button(btn_frame, text="Keep (y)", command=on_keep).pack(side="left", padx=8, pady=6)
-    tk.Button(btn_frame, text="Skip (n)", command=on_skip).pack(side="left", padx=8, pady=6)
+    # place & show
+    root.geometry(f"{im.width}x{im.height}+80+80")
 
-    # size/position
-    root.geometry(f"{im.width}x{im.height+60}+80+80")
+    # --- console listener (non-blocking) ---
+    def stdin_listener():
+        try:
+            print(f"Track ID {track_id}: keep? (y/n) ", end="", flush=True)
+            line = sys.stdin.readline()
+            if not line:
+                return
+            ch = line.strip().lower()[:1]
+            if ch == "y":
+                root.after(0, lambda: decide(True))
+            elif ch == "n":
+                root.after(0, lambda: decide(False))
+        except Exception:
+            pass
+
+    t = threading.Thread(target=stdin_listener, daemon=True)
+    t.start()
+
     root.mainloop()
     return keep_result["val"]
 
