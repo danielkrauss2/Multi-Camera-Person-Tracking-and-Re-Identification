@@ -349,7 +349,7 @@ def reid_and_selection_phase(args):
 
     for root_id in clusters.keys():
         # --- NEW -----------------------------------------------------------
-        if show_id_samples(root_id, track_cnt[root_id], min_crops=100, target_height=500):
+        if show_id_samples(root_id, track_cnt[root_id], min_crops=100, target_height=375):
             selected_ids.add(root_id)
         # -------------------------------------------------------------------
 
