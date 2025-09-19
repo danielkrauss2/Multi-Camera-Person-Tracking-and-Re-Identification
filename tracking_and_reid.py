@@ -415,63 +415,62 @@ from collections import OrderedDict
 def show_id_samples(track_id: int,
                     boxes: list,                  # [[frame,x1,y1,x2,y2,area], …]
                     temp_dir: str = "temp_crops",
-                    min_crops: int = 100,
-                    target_height: int = 360,     # ↓ smaller means faster X11 transfers
-                    reduce: int = 4,              # JPEG reduced-decode: 1,2,4,8
-                    cache_size: int = 256         # LRU cache of downscaled frames
+                    min_crops: int = 10,
+                    display_height: int = 900,    # <- big window size you SEE
+                    decode_reduce: int = 4,       # <- speed: 1 (full), 2, 4, 8
+                    cache_size: int = 256,
+                    input_mode: str = "window"    # "window" | "console" | "both"
                     ) -> bool:
     """
-    Fast full-frame Tk viewer over X11:
-      • persistent single Tk window
-      • reads full frames with JPEG reduced-decode (reduce ∈ {1,2,4,8})
-      • resizes to target_height
-      • console y/n or window keys y/n/Enter/Esc
+    Fast full-frame viewer over X11:
+      • read frames at reduced res (decode_reduce ∈ {1,2,4,8})
+      • then upscale to display_height so the window is BIG
+      • persistent Tk window; press y/n (or Enter/Esc) inside the window
+      • optional console input if input_mode == "console"/"both"
     Returns True iff 'keep'.
     """
     if len(boxes) < min_crops:
         print(f"[UI] ID {track_id} skipped ({len(boxes)} < {min_crops} crops)")
         return False
 
-    # ---- static singletons (persistent Tk + canvas + cache) ----
+    # ---- persistent state (single Tk + canvas + LRU cache) ----
     if not hasattr(show_id_samples, "_state"):
         show_id_samples._state = {}
     S = show_id_samples._state
 
-    # LRU cache: path -> (downscaled BGR image)
+    # LRU cache for downscaled frames
     if "cache" not in S:
         S["cache"] = OrderedDict()
     cache = S["cache"]
 
     def cache_get(path, flag):
-        nonlocal cache
         img = cache.get((path, flag))
         if img is not None:
-            # move to end (recent)
             cache.move_to_end((path, flag))
             return img.copy()
         img = cv2.imread(path, flag)
         if img is None:
             return None
         cache[(path, flag)] = img
-        # trim
         while len(cache) > cache_size:
             cache.popitem(last=False)
         return img.copy()
 
-    # ---- pick 3 full-frame reps ----
+    # pick first / middle / last frames
     boxes = sorted(boxes, key=lambda b: b[0])
     reps  = [boxes[0], boxes[len(boxes)//2], boxes[-1]]
 
     # map reduce → OpenCV flag
-    if reduce not in (1, 2, 4, 8):
-        reduce = 4
+    if decode_reduce not in (1, 2, 4, 8):
+        decode_reduce = 4
     flag_map = {1: cv2.IMREAD_COLOR,
                 2: cv2.IMREAD_REDUCED_COLOR_2,
                 4: cv2.IMREAD_REDUCED_COLOR_4,
                 8: cv2.IMREAD_REDUCED_COLOR_8}
-    imread_flag = flag_map[reduce]
+    imread_flag = flag_map[decode_reduce]
+    coord_scale = 1.0 / decode_reduce
 
-    # ---- load, annotate, downscale each full frame ----
+    # load, annotate, then UPSCALE to display_height so it’s big
     frames_rgb = []
     for k, (f_idx, x1, y1, x2, y2, *_a) in enumerate(reps, start=1):
         path = os.path.join(temp_dir, f"frame_{f_idx}.jpg")
@@ -479,35 +478,34 @@ def show_id_samples(track_id: int,
         if frm is None:
             continue
 
-        # draw bbox (scale coords to reduced resolution)
-        scale = 1.0 / reduce
-        x1r, y1r = int(x1*scale), int(y1*scale)
-        x2r, y2r = int(x2*scale), int(y2*scale)
+        # draw bbox (scaled to reduced decode)
+        x1r, y1r = int(x1*coord_scale), int(y1*coord_scale)
+        x2r, y2r = int(x2*coord_scale), int(y2*coord_scale)
         cv2.rectangle(frm, (x1r, y1r), (x2r, y2r), (0,255,0), 2)
         cv2.putText(frm, f"{k}/3  |  total frames: {len(boxes)}",
                     (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
 
-        # resize full frame to target_height
+        # UPSCALE to desired display height (make it look big)
         h, w = frm.shape[:2]
-        if target_height and h > target_height:
-            s = target_height / h
-            frm = cv2.resize(frm, (max(1, int(w*s)), target_height),
-                             interpolation=cv2.INTER_AREA)
+        if display_height and h != display_height:
+            s = display_height / h
+            frm = cv2.resize(frm, (max(1, int(w*s)), display_height),
+                             interpolation=cv2.INTER_LINEAR)
 
         frames_rgb.append(cv2.cvtColor(frm, cv2.COLOR_BGR2RGB))
 
     if not frames_rgb:
         return False
 
-    # stitch side-by-side
+    # horizontal composite of the three FULL frames
     composite = np.hstack(frames_rgb)
     im = Image.fromarray(composite)
 
-    # ---- persistent Tk window & canvas ----
+    # ---- persistent Tk window ----
     if "root" not in S:
-        S["root"] = tk.Tk()
-        S["root"].title("ID preview")
-        S["canvas"] = tk.Canvas(S["root"], width=im.width, height=im.height, highlightthickness=0)
+        root = S["root"] = tk.Tk()
+        root.title("ID preview")
+        S["canvas"] = tk.Canvas(root, width=im.width, height=im.height, highlightthickness=0)
         S["canvas"].pack()
         S["decision"] = {"val": None}
         S["waitvar"]  = tk.BooleanVar(value=False)
@@ -523,17 +521,18 @@ def show_id_samples(track_id: int,
             elif k in ("n", "escape"):
                 decide(False)
 
-        S["root"].bind("<Key>", on_key)
-        S["decide"] = decide  # keep ref
+        root.bind("<Key>", on_key)
+        S["decide"] = decide
+    else:
+        root = S["root"]
 
-    root   = S["root"]
-    canvas = S["canvas"]
-    decide = S["decide"]
-    waitvar= S["waitvar"]
+    canvas  = S["canvas"]
+    decide  = S["decide"]
+    waitvar = S["waitvar"]
     S["decision"]["val"] = None
     waitvar.set(False)
 
-    # update title & image
+    # update window title & image
     root.title(f"ID {track_id} — Keep this person? (y/n)")
     tkimg = ImageTk.PhotoImage(im)
     canvas.image = tkimg  # keep ref
@@ -543,26 +542,27 @@ def show_id_samples(track_id: int,
     root.geometry(f"{im.width}x{im.height}+80+80")
     root.update_idletasks()
 
-    # non-blocking console listener
-    import threading
-    def stdin_listener():
-        try:
-            print(f"Track ID {track_id}: keep? (y/n) ", end="", flush=True)
-            line = sys.stdin.readline()
-            if not line:
-                return
-            ch = line.strip().lower()[:1]
-            if ch == "y":
-                root.after(0, lambda: decide(True))
-            elif ch == "n":
-                root.after(0, lambda: decide(False))
-        except Exception:
-            pass
-    threading.Thread(target=stdin_listener, daemon=True).start()
+    # optional console input (less reliable over SSH; use window keys if possible)
+    if input_mode in ("console","both"):
+        def stdin_listener():
+            try:
+                print(f"Track ID {track_id}: keep? (y/n) ", end="", flush=True)
+                line = sys.stdin.readline()
+                if not line:
+                    return
+                ch = line.strip().lower()[:1]
+                if ch == "y":
+                    root.after(0, lambda: decide(True))
+                elif ch == "n":
+                    root.after(0, lambda: decide(False))
+            except Exception:
+                pass
+        threading.Thread(target=stdin_listener, daemon=True).start()
 
-    # wait until decision set by key or console
+    # wait for keypress in the window (or console if enabled)
     root.wait_variable(waitvar)
     return bool(S["decision"]["val"])
+
 
 
 def get_FrameLabels(frame):
