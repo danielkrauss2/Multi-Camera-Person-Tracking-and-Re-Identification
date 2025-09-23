@@ -355,9 +355,9 @@ def reid_and_selection_phase(args):
         if show_id_samples(root_id,
                            track_cnt[root_id],
                            min_crops=100,
-                           display_height=900,  # how big you want it ON SCREEN
-                           decode_reduce=4,  # speed: 4 or even 8
-                           input_mode="window"):  # press y/n in the Tk window
+                           display_height=450,  # how big you want it ON SCREEN
+                           decode_reduce=1,  # speed: 4 or even 8
+                           input_mode="both"):  # press y/n in the Tk window
             selected_ids.add(root_id)
 
     # ── Generate output video with masked IDs  ──────────────────────
@@ -419,11 +419,11 @@ from collections import OrderedDict
 def show_id_samples(track_id: int,
                     boxes: list,                  # [[frame,x1,y1,x2,y2,area], …]
                     temp_dir: str = "temp_crops",
-                    min_crops: int = 10,
-                    display_height: int = 900,    # <- big window size you SEE
-                    decode_reduce: int = 4,       # <- speed: 1 (full), 2, 4, 8
+                    min_crops: int = 100,
+                    display_height: int = 450,    # <- big window size you SEE
+                    decode_reduce: int = 1,       # <- speed: 1 (full), 2, 4, 8
                     cache_size: int = 256,
-                    input_mode: str = "window"    # "window" | "console" | "both"
+                    input_mode: str = "both"    # "window" | "console" | "both"
                     ) -> bool:
     """
     Fast full-frame viewer over X11:
