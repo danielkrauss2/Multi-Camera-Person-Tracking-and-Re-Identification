@@ -351,10 +351,14 @@ def reid_and_selection_phase(args):
     selected_ids = set()
 
     for root_id in clusters.keys():
-        # --- NEW -----------------------------------------------------------
-        if show_id_samples(root_id, track_cnt[root_id], min_crops=100, reduce=4 ,target_height=300):
+        # Big visible window, but fast (decode small, display big)
+        if show_id_samples(root_id,
+                           track_cnt[root_id],
+                           min_crops=100,
+                           display_height=900,  # how big you want it ON SCREEN
+                           decode_reduce=4,  # speed: 4 or even 8
+                           input_mode="window"):  # press y/n in the Tk window
             selected_ids.add(root_id)
-        # -------------------------------------------------------------------
 
     # ── Generate output video with masked IDs  ──────────────────────
     print("Generating output video for selected IDs...")
