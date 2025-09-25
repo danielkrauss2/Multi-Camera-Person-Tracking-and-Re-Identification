@@ -449,7 +449,7 @@ def show_id_samples(track_id: int,
                                interpolation=cv2.INTER_LINEAR)
 
     win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
+    cv2.namedWindow(win, cv2.WINDOW_AUTOSIZE)  # user may still resize
     cv2.imshow(win, composite)
 
     #cv2.imshow(f"ID {track_id}", composite)
