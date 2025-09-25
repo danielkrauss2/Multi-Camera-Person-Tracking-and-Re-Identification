@@ -411,7 +411,7 @@ def show_id_samples(track_id: int,
                     boxes: list,              # [[frame,x1,y1,x2,y2,area], …]
                     temp_dir: str = "temp_crops",
                     min_crops: int = 10,
-                    target_height: int = 300) -> bool:
+                    target_height: int = 200) -> bool:
     """
     Show first / middle / last snapshots in one window.
     Return True iff the user answers 'y'.
@@ -449,7 +449,7 @@ def show_id_samples(track_id: int,
                                interpolation=cv2.INTER_LINEAR)
 
     win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
+    cv2.namedWindow(win, cv2.WINDOW_AUTOSIZE)  # user may still resize
 
     cv2.imshow(win, composite)
     cv2.waitKey(10)
