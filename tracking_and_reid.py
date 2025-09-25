@@ -422,7 +422,12 @@ def show_id_samples(track_id: int,
         return False
 
     boxes.sort(key=lambda b: b[0])
-    reps = [boxes[0], boxes[len(boxes)//2], boxes[-1]]   # first/mid/last
+
+    # --- pick 5 representatives (0%, 25%, 50%, 75%, 100%) ---
+    n = len(boxes)
+    idxs = [0, n // 4, n // 2, (3 * n) // 4, n - 1]
+    reps = [boxes[i] for i in idxs]
+    # -------------------------------------------------------------------------------
 
     thumbs = []
     for k, (f_idx, x1, y1, x2, y2, *_a) in enumerate(reps, start=1):
@@ -430,7 +435,7 @@ def show_id_samples(track_id: int,
         if fr is None:
             continue
         cv2.rectangle(fr, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(fr, f"{k}/3  |  total frames: {len(boxes)}", (10, 25),
+        cv2.putText(fr, f"{k}/5  |  total frames: {len(boxes)}", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         thumbs.append(fr)
 
@@ -440,7 +445,7 @@ def show_id_samples(track_id: int,
         # ── show each image in its own window (no stitching / no rescaling) ──
     win_titles = []
     for k, img in enumerate(thumbs, start=1):
-        win = f"ID {track_id} [{k}/3] – press 'y' to keep, 'n' to skip"
+        win = f"ID {track_id} [{k}/5] – press 'y' to keep, 'n' to skip"
         cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
         cv2.imshow(win, img)
         win_titles.append(win)
