@@ -452,7 +452,10 @@ def show_id_samples(track_id: int,
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
     cv2.imshow(win, composite)
 
-    cv2.imshow(f"ID {track_id}", composite)
+    #cv2.imshow(f"ID {track_id}", composite)
+    # make the window open at (about) the image size
+    cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
+
     cv2.waitKey(10)                                # just let it paint once
 
     # ── now ask in terminal while window stays visible ────────────────
