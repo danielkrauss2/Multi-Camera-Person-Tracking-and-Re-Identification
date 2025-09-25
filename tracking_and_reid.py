@@ -442,11 +442,11 @@ def show_id_samples(track_id: int,
 
     # ── upscale so height ≈ target_height px (keep aspect ratio) ──────
     h, w = composite.shape[:2]
-    if h < target_height:
-        scale = (target_height / h) * 0.5
-        composite = cv2.resize(composite,
-                               (int(w * scale), target_height),
-                               interpolation=cv2.INTER_LINEAR)
+
+    scale = (target_height / h) * 0.5
+    composite = cv2.resize(composite,
+                           (int(w * scale), target_height),
+                           interpolation=cv2.INTER_LINEAR)
 
     win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
