@@ -454,7 +454,7 @@ def show_id_samples(track_id: int,
 
     #cv2.imshow(f"ID {track_id}", composite)
     # make the window open at (about) the image size
-    cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
+    #cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
 
     cv2.waitKey(10)                                # just let it paint once
 
