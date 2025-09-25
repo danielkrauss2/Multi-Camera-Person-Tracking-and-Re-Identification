@@ -461,14 +461,8 @@ def show_id_samples(track_id: int,
     # make the window open at (about) the image size
     #cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
 
-    # read y/n without blocking the GUI thread
-    keep = None
-    while keep is None:
-        k = cv2.waitKey(10) & 0xFF
-        if k in (ord('y'), ord('Y')):
-            keep = True
-        elif k in (ord('n'), ord('N'), 27):  # Esc counts as 'no'
-            keep = False
+    # ── now ask in terminal while window stays visible ────────────────
+    keep = input(f"Track ID {track_id}: keep? (y/n) ").strip().lower() == 'y'
 
     cv2.destroyAllWindows()                       # close after answer
     return keep
