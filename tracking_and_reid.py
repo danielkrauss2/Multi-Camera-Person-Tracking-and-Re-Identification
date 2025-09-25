@@ -453,7 +453,7 @@ def show_id_samples(track_id: int,
 
     cv2.imshow(win, composite)
 
-    cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
+    #cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
     cv2.waitKey(10)
 
     # ── now ask in terminal while window stays visible ────────────────
