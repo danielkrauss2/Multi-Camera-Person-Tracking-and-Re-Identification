@@ -449,14 +449,12 @@ def show_id_samples(track_id: int,
                                interpolation=cv2.INTER_LINEAR)
 
     win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
-    cv2.namedWindow(win, cv2.WINDOW_AUTOSIZE)  # user may still resize
+    cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
 
     cv2.imshow(win, composite)
-    cv2.waitKey(10)
 
-    #cv2.imshow(f"ID {track_id}", composite)
-    # make the window open at (about) the image size
-    #cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
+    cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
+    cv2.waitKey(10)
 
     # ── now ask in terminal while window stays visible ────────────────
     keep = input(f"Track ID {track_id}: keep? (y/n) ").strip().lower() == 'y'
