@@ -450,10 +450,11 @@ def show_id_samples(track_id: int,
 
     win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
     cv2.namedWindow(win, cv2.WINDOW_AUTOSIZE)  # user may still resize
+    cv2.waitKey(1)
+
     cv2.imshow(win, composite)
 
     # pump events; some backends need a couple of frames to fully draw
-    cv2.waitKey(1)
     cv2.imshow(win, composite)
     cv2.waitKey(10)
 
