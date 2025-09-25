@@ -455,16 +455,20 @@ def show_id_samples(track_id: int,
     # pump events; some backends need a couple of frames to fully draw
     cv2.waitKey(1)
     cv2.imshow(win, composite)
-    cv2.waitKey(50)
+    cv2.waitKey(10)
 
     #cv2.imshow(f"ID {track_id}", composite)
     # make the window open at (about) the image size
     #cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
 
-    cv2.waitKey(10)                                # just let it paint once
-
-    # ── now ask in terminal while window stays visible ────────────────
-    keep = input(f"Track ID {track_id}: keep? (y/n) ").strip().lower() == 'y'
+    # read y/n without blocking the GUI thread
+    keep = None
+    while keep is None:
+        k = cv2.waitKey(10) & 0xFF
+        if k in (ord('y'), ord('Y')):
+            keep = True
+        elif k in (ord('n'), ord('N'), 27):  # Esc counts as 'no'
+            keep = False
 
     cv2.destroyAllWindows()                       # close after answer
     return keep
