@@ -452,6 +452,11 @@ def show_id_samples(track_id: int,
     cv2.namedWindow(win, cv2.WINDOW_AUTOSIZE)  # user may still resize
     cv2.imshow(win, composite)
 
+    # pump events; some backends need a couple of frames to fully draw
+    cv2.waitKey(1)
+    cv2.imshow(win, composite)
+    cv2.waitKey(50)
+
     #cv2.imshow(f"ID {track_id}", composite)
     # make the window open at (about) the image size
     #cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
