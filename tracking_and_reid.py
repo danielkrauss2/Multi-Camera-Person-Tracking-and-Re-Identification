@@ -437,29 +437,29 @@ def show_id_samples(track_id: int,
     if not thumbs:
         return False
 
-    # ── stitch side-by-side ────────────────────────────────────────────
-    composite = np.hstack(thumbs)
+        # ── show each image in its own window (no stitching / no rescaling) ──
+    win_titles = []
+    for k, img in enumerate(thumbs, start=1):
+        win = f"ID {track_id} [{k}/3] – press 'y' to keep, 'n' to skip"
+        cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
+        cv2.imshow(win, img)
+        win_titles.append(win)
 
-    # ── upscale so height ≈ target_height px (keep aspect ratio) ──────
-    h, w = composite.shape[:2]
-
-    scale = (target_height / h) * 0.5
-    composite = cv2.resize(composite,
-                           (int(w * scale), target_height),
-                           interpolation=cv2.INTER_LINEAR)
-
-    win = f"ID {track_id} – press 'y' to keep, 'n' to skip"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)  # user may still resize
-
-    cv2.imshow(win, composite)
-
-    #cv2.resizeWindow(win, composite.shape[1], composite.shape[0])
+    # let the windows paint before blocking on input()
     cv2.waitKey(10)
 
-    # ── now ask in terminal while window stays visible ────────────────
+    # ── ask in terminal while windows stay visible ───────────────────────
     keep = input(f"Track ID {track_id}: keep? (y/n) ").strip().lower() == 'y'
 
-    cv2.destroyAllWindows()                       # close after answer
+    # close all created windows
+    for win in win_titles:
+        try:
+            cv2.destroyWindow(win)
+        except Exception:
+            pass
+    # fall back in case of any leftover windows
+    cv2.destroyAllWindows()
+
     return keep
 
 
